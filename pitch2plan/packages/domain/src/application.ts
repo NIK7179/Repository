@@ -4,9 +4,10 @@ import type {
 import { canWrite, requireProjectAccess } from './authorization';
 import { DomainError } from './errors';
 import type { Logger } from './logger';
-import type { ArchitectureAiPort, AssistantAiPort, DiscoveryAiPort, ImplementationAiPort, ExternalIdentity, IdeaInterpreterPort, JobQueue, Repositories } from './ports';
+import type { ArchitectureAiPort, AssistantAiPort, ChangeAiPort, DiscoveryAiPort, ImplementationAiPort, ExternalIdentity, IdeaInterpreterPort, JobQueue, Repositories } from './ports';
 import { createArchitectureService, DEFAULT_ARCHITECTURE_CONFIG, type ArchitectureConfig } from './architecture';
 import { createAssistantService } from './assistant';
+import { createChangeService, DEFAULT_CHANGE_CONFIG, type ChangeConfig } from './change';
 import { createImplementationService, DEFAULT_IMPLEMENTATION_CONFIG, type ImplementationConfig } from './implementation';
 import { createBriefService } from './brief';
 import { createDiscoveryService, type RequestContext } from './discovery';
@@ -14,15 +15,15 @@ import { DEFAULT_DISCOVERY_CONFIG, type DiscoveryConfig } from './shared';
 
 export type { RequestContext };
 export interface ApplicationDeps {
-  repos: Repositories; interpreter: IdeaInterpreterPort; discoveryAi: DiscoveryAiPort; architectureAi: ArchitectureAiPort; implementationAi: ImplementationAiPort; assistantAi: AssistantAiPort; queue: JobQueue; logger: Logger;
-  discoveryConfig?: Partial<DiscoveryConfig>; architectureConfig?: Partial<ArchitectureConfig>; implementationConfig?: Partial<ImplementationConfig>;
+  repos: Repositories; interpreter: IdeaInterpreterPort; discoveryAi: DiscoveryAiPort; architectureAi: ArchitectureAiPort; implementationAi: ImplementationAiPort; assistantAi: AssistantAiPort; changeAi: ChangeAiPort; queue: JobQueue; logger: Logger;
+  discoveryConfig?: Partial<DiscoveryConfig>; architectureConfig?: Partial<ArchitectureConfig>; implementationConfig?: Partial<ImplementationConfig>; changeConfig?: Partial<ChangeConfig>;
 }
 
 function isAiError(e: unknown): e is { code: string; message: string; details?: unknown } {
   return !!e && typeof e === 'object' && typeof (e as { code?: unknown }).code === 'string' && (e as { code: string }).code.startsWith('AI_');
 }
 
-export function createApplication({ repos, interpreter, discoveryAi, architectureAi, implementationAi, assistantAi, queue, logger, discoveryConfig, architectureConfig, implementationConfig }: ApplicationDeps) {
+export function createApplication({ repos, interpreter, discoveryAi, architectureAi, implementationAi, assistantAi, changeAi, queue, logger, discoveryConfig, architectureConfig, implementationConfig, changeConfig }: ApplicationDeps) {
   const config: DiscoveryConfig = { ...DEFAULT_DISCOVERY_CONFIG, ...discoveryConfig };
   const discovery = createDiscoveryService({ repos, ai: discoveryAi, logger, config });
   const briefs = createBriefService({ repos, ai: discoveryAi, logger, discovery });
@@ -33,6 +34,7 @@ export function createApplication({ repos, interpreter, discoveryAi, architectur
 
   const implementation = createImplementationService({ repos, ai: implementationAi, queue, logger, config: { ...DEFAULT_IMPLEMENTATION_CONFIG, ...implementationConfig } });
   const assistant = createAssistantService({ repos, ai: assistantAi, logger });
+  const change = createChangeService({ repos, ai: changeAi, architectureAi, implementation, queue, logger, config: { ...DEFAULT_CHANGE_CONFIG, ...changeConfig } });
 
   return {
     discovery,
@@ -40,6 +42,7 @@ export function createApplication({ repos, interpreter, discoveryAi, architectur
     architecture,
     implementation,
     assistant,
+    change,
     config,
     users: {
       provision: (identity: ExternalIdentity) => repos.users.provision(identity),

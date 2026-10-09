@@ -260,7 +260,10 @@ export function createDiscoveryRepositories(prisma: PrismaClient): DiscoveryRepo
         return v ? toBriefVersion(v) : null;
       },
       async listDrivers(briefVersionId): Promise<DriverRecord[]> {
-        const rows = await prisma.architectureDriver.findMany({ where: { briefVersionId }, include: { requirements: true }, orderBy: { key: 'asc' } });
+        const rows = await prisma.architectureDriver.findMany({ where: { briefVersionId }, include: { requirements: true } });
+        // Natural order: d1, d2 ... d10 (not d1, d10, d2), then drivers added by later requirement changes (chg-*), so appended drivers stay last.
+        const rank = (k: string) => { const m = /^d(\d+)$/.exec(k); return m ? ([0, Number(m[1])] as const) : ([1, 0] as const); };
+        rows.sort((a, b) => rank(a.key)[0] - rank(b.key)[0] || rank(a.key)[1] - rank(b.key)[1] || a.key.localeCompare(b.key));
         return rows.map((d) => ({ id: d.id, key: d.key, name: d.name, description: d.description, priority: d.priority, requirementIds: d.requirements.map((r) => r.requirementId) }));
       },
       async createVersion({ projectId, content, fingerprint, ai, userId, drivers }) {

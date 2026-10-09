@@ -63,3 +63,12 @@ export type TaskDetailDto = Json<Awaited<ReturnType<ImplementationService['getTa
 export type ComponentWorkspaceDto = Json<Awaited<ReturnType<ImplementationService['getComponent']>>>;
 export type ConversationDto = Json<Awaited<ReturnType<AssistantService['getConversation']>>>;
 export type MessageDto = ConversationDto['messages'][number];
+
+import type { ChangeService } from '@pitch2plan/domain';
+export type ProposalViewDto = Json<Awaited<ReturnType<ChangeService['get']>>>;
+export type ProposalListItemDto = Json<Awaited<ReturnType<ChangeService['list']>>>[number];
+export type VersionHistoryDto = Json<Awaited<ReturnType<ChangeService['versionHistory']>>>;
+export type ArchitectureDiffDto = Json<Awaited<ReturnType<ChangeService['getDiff']>>>;
+export type PlanDiffDto = Json<Awaited<ReturnType<ChangeService['planDiff']>>>;
+export type ReviewDto = NonNullable<Json<Awaited<ReturnType<ChangeService['latestReview']>>>>;
+export type FailureImpactDto = Json<Awaited<ReturnType<ChangeService['failureImpact']>>>;

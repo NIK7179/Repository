@@ -10,9 +10,10 @@ const isUnique = (e: unknown) => !!e && typeof e === 'object' && (e as { code?: 
 const json = (v: unknown) => v as Prisma.InputJsonValue;
 const strings = z.array(z.string());
 
-const runInclude = { version: { select: { id: true } } } as const;
+export const runInclude = { version: { select: { id: true } } } as const;
 type RunRow = Prisma.ArchitectureGenerationRunGetPayload<{ include: typeof runInclude }>;
-const toRun = (r: RunRow): GenerationRunRecord => ({
+export const toRun = (r: RunRow): GenerationRunRecord => ({
+  mode: r.mode, proposalId: r.proposalId, baseVersionId: r.baseVersionId,
   id: r.id, projectId: r.projectId, briefVersionId: r.briefVersionId, status: r.status, currentStage: r.currentStage, attempt: r.attempt, repairCount: r.repairCount,
   failureCode: r.failureCode, failureMessage: r.failureMessage, jobId: r.jobId, requestedById: r.requestedById, createdAt: r.createdAt, startedAt: r.startedAt,
   heartbeatAt: r.heartbeatAt, finishedAt: r.finishedAt, versionId: r.version?.id ?? null,
@@ -22,15 +23,15 @@ const versionInclude = {
   architecture: { select: { projectId: true } },
   nodes: { orderBy: { stableKey: 'asc' as const } },
   edges: { orderBy: { edgeKey: 'asc' as const } },
-  decisions: { orderBy: { key: 'asc' as const }, include: { driverLinks: true, requirementLinks: true, nodeLinks: { include: { node: { select: { stableKey: true } } } }, edgeLinks: { include: { edge: { select: { edgeKey: true } } } } } },
+  decisions: { orderBy: { key: 'asc' as const }, include: { supersedes: { select: { key: true } }, supersededBy: { select: { key: true } }, driverLinks: true, requirementLinks: true, nodeLinks: { include: { node: { select: { stableKey: true } } } }, edgeLinks: { include: { edge: { select: { edgeKey: true } } } } } },
   issues: { orderBy: { createdAt: 'asc' as const } },
   _count: { select: { nodes: true, edges: true, decisions: true } },
 } as const;
 type VersionRow = Prisma.ArchitectureVersionGetPayload<{ include: typeof versionInclude }>;
 
-const toSummary = (v: Pick<VersionRow, 'id' | 'architectureId' | 'versionNumber' | 'status' | 'generationRunId' | 'briefVersionId' | 'summary' | 'createdAt' | 'finalizedAt' | '_count'> & { architecture: { projectId: string } }): ArchitectureVersionSummary => ({
+const toSummary = (v: Pick<VersionRow, 'id' | 'architectureId' | 'versionNumber' | 'status' | 'generationRunId' | 'briefVersionId' | 'summary' | 'createdAt' | 'finalizedAt' | '_count' | 'parentVersionId' | 'sourceProposalId'> & { architecture: { projectId: string } }): ArchitectureVersionSummary => ({
   id: v.id, architectureId: v.architectureId, projectId: v.architecture.projectId, versionNumber: v.versionNumber, status: v.status, generationRunId: v.generationRunId,
-  briefVersionId: v.briefVersionId, summary: v.summary, createdAt: v.createdAt, finalizedAt: v.finalizedAt, counts: { nodes: v._count.nodes, edges: v._count.edges, decisions: v._count.decisions },
+  briefVersionId: v.briefVersionId, summary: v.summary, createdAt: v.createdAt, finalizedAt: v.finalizedAt, parentVersionId: v.parentVersionId, sourceProposalId: v.sourceProposalId, counts: { nodes: v._count.nodes, edges: v._count.edges, decisions: v._count.decisions },
 });
 const riskSchema = z.array(z.object({ text: z.string(), severity: prioritySchema, nodeStableKeys: strings.default([]) }));
 
@@ -52,6 +53,7 @@ const toVersion = (v: VersionRow): ArchitectureVersionRecord => ({
     risks: strings.parse(d.risks), alternatives: z.array(decisionAlternativeSchema).parse(d.alternatives), consequences: strings.parse(d.consequences), confidence: d.confidence, createdAt: d.createdAt,
     driverIds: d.driverLinks.map((l) => l.driverId), requirementIds: d.requirementLinks.map((l) => l.requirementId),
     nodeStableKeys: d.nodeLinks.map((l) => l.node.stableKey).sort(), edgeKeys: d.edgeLinks.map((l) => l.edge.edgeKey).sort(),
+    supersedesKey: d.supersedes?.key ?? null, supersededByKey: d.supersededBy[0]?.key ?? null, effectiveStatus: d.supersededBy.length ? 'SUPERSEDED' : d.status,
   })),
   issues: v.issues.map((i): IssueRecord => ({
     id: i.id, stage: i.stage, source: i.source as IssueRecord['source'], severity: prioritySchema.parse(i.severity), category: i.category as IssueRecord['category'], code: i.code,
@@ -103,7 +105,7 @@ export function createArchitectureRepositories(prisma: PrismaClient): Architectu
       async attachJob(runId, jobId) { await prisma.architectureGenerationRun.update({ where: { id: runId }, data: { jobId } }); },
       getRun,
       async getRunByJobId(jobId) { const r = await prisma.architectureGenerationRun.findUnique({ where: { jobId }, include: runInclude }); return r ? toRun(r) : null; },
-      async getLatestRun(projectId) { const r = await prisma.architectureGenerationRun.findFirst({ where: { projectId }, orderBy: { createdAt: 'desc' }, include: runInclude }); return r ? toRun(r) : null; },
+      async getLatestRun(projectId) { const r = await prisma.architectureGenerationRun.findFirst({ where: { projectId, mode: 'INITIAL' }, orderBy: { createdAt: 'desc' }, include: runInclude }); return r ? toRun(r) : null; },
 
       async claimRun(runId, staleBefore) {
         const now = new Date();

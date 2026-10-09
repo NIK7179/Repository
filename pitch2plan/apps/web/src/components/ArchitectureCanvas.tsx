@@ -3,16 +3,16 @@ import '@xyflow/react/dist/style.css';
 import { Background, Controls, MiniMap, ReactFlow, ReactFlowProvider, useEdgesState, useNodesState, useReactFlow } from '@xyflow/react';
 import { useEffect, useMemo } from 'react';
 import { Button } from '@pitch2plan/ui';
-import { VIEW_LABELS, toCanvasViewModel, type ComponentFlowEdge, type ComponentFlowNode, type VersionDto, type ViewMode } from '@/lib/canvas';
+import { VIEW_LABELS, toCanvasViewModel, type CanvasDiff, type ComponentFlowEdge, type ComponentFlowNode, type VersionDto, type ViewMode } from '@/lib/canvas';
 import { ComponentNode } from './ComponentNode';
 
 const nodeTypes = { component: ComponentNode };
 
 export type Selection = { kind: 'node'; key: string } | { kind: 'edge'; key: string } | null;
 
-function Inner({ version, mode, onModeChange, selection, onSelect }: { version: VersionDto['version']; mode: ViewMode; onModeChange: (m: ViewMode) => void; selection: Selection; onSelect: (s: Selection) => void }) {
+function Inner({ version, mode, onModeChange, selection, onSelect, diff }: { version: VersionDto['version']; mode: ViewMode; onModeChange: (m: ViewMode) => void; selection: Selection; onSelect: (s: Selection) => void; diff?: CanvasDiff }) {
   // The canvas is derived from the persisted version on every render of this view. Positions are a layout, not data.
-  const model = useMemo(() => toCanvasViewModel(version, mode), [version, mode]);
+  const model = useMemo(() => toCanvasViewModel(version, mode, diff), [version, mode, diff]);
   const [nodes, setNodes, onNodesChange] = useNodesState<ComponentFlowNode>(model.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<ComponentFlowEdge>(model.edges);
   const { fitView } = useReactFlow();

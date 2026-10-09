@@ -370,10 +370,11 @@ describe('authorization', () => {
     const id = owner.project.id;
     expect((await h.app.discovery.getState(viewer.ctx, id)).rounds).toHaveLength(1);
     const round = owner.state.rounds[0]!;
+    // Each attempt is created only when it is awaited: promises built up front can reject before a handler is attached (an "unhandled rejection").
     for (const attempt of [
-      h.app.discovery.submitAnswers(viewer.ctx, id, round.id, { answers: answerAll(owner.state).answers }), h.app.discovery.finish(viewer.ctx, id),
-      h.app.discovery.editRequirement(viewer.ctx, id, owner.state.requirements[0]!.id, { statement: 'Viewer edit attempt' }), h.app.briefs.generate(viewer.ctx, id),
-    ]) await expect(attempt).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      () => h.app.discovery.submitAnswers(viewer.ctx, id, round.id, { answers: answerAll(owner.state).answers }), () => h.app.discovery.finish(viewer.ctx, id),
+      () => h.app.discovery.editRequirement(viewer.ctx, id, owner.state.requirements[0]!.id, { statement: 'Viewer edit attempt' }), () => h.app.briefs.generate(viewer.ctx, id),
+    ]) await expect(attempt()).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 });
 

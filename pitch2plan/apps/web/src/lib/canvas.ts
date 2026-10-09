@@ -20,6 +20,8 @@ const HANDLES = [
 
 export interface ComponentNodeData extends Record<string, unknown> {
   stableKey: string; name: string; technology: string; technologySlug: string; category: NodeCategory; purpose: string; criticality: string; provider: string | null; managedService: boolean;
+  /** Set only on the compare view: ADDED | REMOVED | MODIFIED | REPLACED | UNCHANGED. */
+  diffKind?: string;
 }
 export type ComponentFlowNode = Node<ComponentNodeData, 'component'>;
 export interface ComponentEdgeData extends Record<string, unknown> { edgeKey: string; communicationType: string; protocol: string; synchronous: boolean; encrypted: boolean | null }
@@ -29,7 +31,9 @@ export const VIEW_LABELS: Record<ViewMode, string> = { SYSTEM: 'System architect
 const DATA_COMMUNICATION = new Set(['EVENT', 'STREAM', 'BATCH', 'FILE', 'DATABASE', 'CACHE', 'MESSAGE', 'MODEL_INFERENCE']);
 
 /** View abstraction: later phases add Deployment / Security / Network by adding a case here. */
-export function toCanvasViewModel(version: Pick<VersionDto['version'], 'nodes' | 'edges'>, mode: ViewMode = 'SYSTEM'): { nodes: ComponentFlowNode[]; edges: ComponentFlowEdge[] } {
+const EDGE_TAG: Record<string, string> = { ADDED: 'Added', REMOVED: 'Removed', MODIFIED: 'Modified' };
+export interface CanvasDiff { nodes: Record<string, string>; edges: Record<string, string> }
+export function toCanvasViewModel(version: Pick<VersionDto['version'], 'nodes' | 'edges'>, mode: ViewMode = 'SYSTEM', diff?: CanvasDiff): { nodes: ComponentFlowNode[]; edges: ComponentFlowEdge[] } {
   let nodes = version.nodes;
   let edges = version.edges;
   if (mode === 'DATA_FLOW') {
@@ -51,15 +55,15 @@ export function toCanvasViewModel(version: Pick<VersionDto['version'], 'nodes' |
       const p = g.node(n.stableKey);
       return {
         id: n.stableKey, type: 'component', width: NODE_WIDTH, height: NODE_HEIGHT, handles: HANDLES, position: { x: Math.round(p.x - NODE_WIDTH / 2), y: Math.round(p.y - NODE_HEIGHT / 2) },
-        data: { stableKey: n.stableKey, name: n.name, technology: n.technology, technologySlug: n.technologySlug, category: n.category, purpose: n.purpose, criticality: n.criticality, provider: n.provider, managedService: n.managedService },
+        data: { stableKey: n.stableKey, name: n.name, technology: n.technology, technologySlug: n.technologySlug, category: n.category, purpose: n.purpose, criticality: n.criticality, provider: n.provider, managedService: n.managedService, ...(diff ? { diffKind: diff.nodes[n.stableKey] ?? 'UNCHANGED' } : {}) },
       };
     }),
     edges: edges.map((e): ComponentFlowEdge => ({
       id: e.edgeKey, source: e.sourceStableKey, target: e.targetStableKey, type: 'default', animated: !e.synchronous,
-      label: mode === 'DATA_FLOW' ? e.dataDescription : `${e.protocol}${e.encrypted === false ? ' · unencrypted' : ''}`,
+      label: `${diff && (diff.edges[e.edgeKey] ?? 'UNCHANGED') !== 'UNCHANGED' ? `[${EDGE_TAG[diff.edges[e.edgeKey]!] ?? diff.edges[e.edgeKey]}] ` : ''}${mode === 'DATA_FLOW' ? e.dataDescription : `${e.protocol}${e.encrypted === false ? ' · unencrypted' : ''}`}`,
       data: { edgeKey: e.edgeKey, communicationType: e.communicationType, protocol: e.protocol, synchronous: e.synchronous, encrypted: e.encrypted },
       ariaLabel: `${e.label}: ${e.sourceStableKey} to ${e.targetStableKey}`,
-      style: e.encrypted === false ? { strokeDasharray: '5 4' } : undefined,
+      style: diff && diff.edges[e.edgeKey] === 'REMOVED' ? { strokeDasharray: '8 5', opacity: 0.75 } : diff && diff.edges[e.edgeKey] === 'MODIFIED' ? { strokeDasharray: '2 4', strokeWidth: 2.5 } : diff && diff.edges[e.edgeKey] === 'ADDED' ? { strokeWidth: 3 } : e.encrypted === false ? { strokeDasharray: '5 4' } : undefined,
     })),
   };
 }

@@ -72,7 +72,7 @@ export function ArchitectureView({ projectId }: { projectId: string }) {
     <div className="space-y-4">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div><p className="text-xs uppercase tracking-wide text-muted">Architecture</p><h1 className="text-xl font-semibold" data-testid="project-name">{data.project.name}</h1></div>
-        <Link href={`/projects/${projectId}/decisions`}><Button variant="secondary">View decisions</Button></Link>
+        <div className="flex flex-wrap gap-2"><Link href={`/projects/${projectId}/changes/new`}><Button variant="secondary" data-testid="request-change">Request architecture change</Button></Link><Link href={`/projects/${projectId}/review`}><Button variant="secondary">Production readiness review</Button></Link><Link href={`/projects/${projectId}/decisions`}><Button variant="secondary">View decisions</Button></Link></div>
       </header>
       <section aria-label="Architecture summary" data-testid="architecture-summary" className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg border border-border bg-panel px-4 py-3 text-sm">
         <span className="font-medium">Version {v.version.versionNumber}</span>

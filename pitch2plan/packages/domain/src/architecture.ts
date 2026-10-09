@@ -71,7 +71,7 @@ export function createArchitectureService(deps: { repos: Repositories; ai: Archi
   /** A run whose worker vanished (crash, lost job) must never leave the project stuck in ARCHITECTURE_GENERATING. */
   async function recoverStale(projectId?: string) {
     const before = new Date(Date.now() - config.staleRunMs);
-    const stale = (await repos.architecture.listStaleRuns(before)).filter((r) => !projectId || r.projectId === projectId);
+    const stale = (await repos.architecture.listStaleRuns(before)).filter((r) => r.mode !== 'CHANGE' && (!projectId || r.projectId === projectId)); // change applications have their own recovery
     for (const run of stale) await failRun(run, 'GENERATION_TIMED_OUT');
     return stale.length;
   }

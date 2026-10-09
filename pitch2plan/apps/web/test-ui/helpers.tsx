@@ -76,3 +76,17 @@ export async function implementationReadyViaApi(session: ReturnType<typeof makeS
   const taskId = (key: string) => o.implementation.plan!.tasks.find((t) => t.key === key)!.id;
   return { id, plan: o.implementation.plan!, taskId };
 }
+
+/** Marks a task completed through the real API: start, confirm every validation step as the user, complete. */
+export async function completeViaApi(session: ReturnType<typeof makeSession>, taskId: string) {
+  await session.api(`/api/implementation/tasks/${taskId}/status`, { status: 'IN_PROGRESS' }, 'PATCH');
+  const t = await session.api<{ task: { validation: { total: number } } }>(`/api/implementation/tasks/${taskId}`);
+  await session.api(`/api/implementation/tasks/${taskId}/validate-completion`, { confirmations: Array.from({ length: t.task.validation.total }, (_, position) => ({ position, confirmed: true })) });
+  await session.api(`/api/implementation/tasks/${taskId}/status`, { status: 'COMPLETED' }, 'PATCH');
+}
+/** Architecture V1, implementation plan V1, and several completed tasks: "I already started implementing". */
+export async function startedViaApi(session: ReturnType<typeof makeSession>, label: string) {
+  const r = await implementationReadyViaApi(session, label);
+  for (const key of ['prepare-environment', 'configure-secrets-and-identity', 'provision-event-stream', 'provision-primary-database']) await completeViaApi(session, r.taskId(key));
+  return r;
+}

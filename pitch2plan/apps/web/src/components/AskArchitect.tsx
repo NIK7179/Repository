@@ -11,7 +11,7 @@ interface Item { id: string; role: 'USER' | 'ASSISTANT'; text: string; structure
 export interface AskArchitectProps { projectId: string; scope: 'PROJECT' | 'COMPONENT' | 'TASK'; scopeId?: string; stepId?: string | null; suggestions?: string[]; onClearStep?: () => void }
 const DEFAULT_SUGGESTIONS = ['Why do I need this?', 'How do I validate this?', 'What comes next?', 'What happens if I skip this?'];
 
-function Structured({ projectId, m }: { projectId: string; m: AssistantMessageContent }) {
+function Structured({ projectId, m, proposeHref }: { projectId: string; m: AssistantMessageContent; proposeHref?: string }) {
   return (
     <div className="mt-3 space-y-3">
       {m.notices.map((n, i) => <Alert key={i} tone="warn" title="Please note">{n}</Alert>)}
@@ -20,6 +20,8 @@ function Structured({ projectId, m }: { projectId: string; m: AssistantMessageCo
           <p className="font-medium">An architecture change would be required</p>
           {m.architectureImpact && <p className="mt-1 text-muted">{m.architectureImpact}</p>}
           <p className="mt-1 text-xs text-muted">Nothing was changed. Your architecture is exactly as it was.</p>
+          {proposeHref && <Link href={proposeHref} data-testid="propose-change" className="mt-2 inline-block rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg hover:opacity-90">Propose Architecture Change</Link>}
+          <p className="mt-1 text-xs text-muted">You will review and edit the proposal before anything is created.</p>
         </div>
       )}
       {m.warnings.length > 0 && <ul className="list-disc space-y-1 pl-5 text-sm">{m.warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>}
@@ -49,10 +51,16 @@ export function AskArchitect({ projectId, scope, scopeId, stepId, suggestions = 
   const [streaming, setStreaming] = useState<string | null>(null);
   const [error, setError] = useState<{ code: string; message: string } | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const last = useRef<AskInput | null>(null);
   const abort = useRef<AbortController | null>(null);
   const bottom = useRef<HTMLDivElement | null>(null);
   const busy = streaming !== null;
+  /** Prefills a change proposal from this answer. The user reviews and edits it; nothing is created here. */
+  const proposalHref = (m: Item, prev?: Item) => {
+    const q = new URLSearchParams({ text: (prev?.text ?? '').slice(0, 1500), ...(m.structured?.architectureImpact ? { reason: m.structured.architectureImpact.slice(0, 1000) } : {}), ...(conversationId ? { conversation: conversationId } : {}), ...(m.id && !m.id.startsWith('local-') ? { message: m.id } : {}) });
+    return `/projects/${projectId}/changes/new?${q}`;
+  };
 
   useEffect(() => {
     let live = true; setLoaded(false); setItems([]);
@@ -62,6 +70,7 @@ export function AskArchitect({ projectId, scope, scopeId, stepId, suggestions = 
         if (!live) return;
         const loaded = r.messages.filter((m) => m.status === 'COMPLETE').map((m) => ({ id: m.id, role: m.role === 'USER' ? 'USER' as const : 'ASSISTANT' as const, text: m.structured?.answer ?? m.content, structured: m.structured as AssistantMessageContent | null }));
         setItems((cur) => (cur.length ? cur : loaded)); // never overwrite a question the user already sent while history was loading
+        setConversationId((c) => c ?? r.conversation?.id ?? null);
       })
       .catch(() => undefined).finally(() => live && setLoaded(true));
     return () => { live = false; abort.current?.abort(); };
@@ -73,6 +82,7 @@ export function AskArchitect({ projectId, scope, scopeId, stepId, suggestions = 
     const ac = new AbortController(); abort.current = ac; let acc = '';
     try {
       await streamAsk(input, {
+        onStart: (e) => setConversationId(e.conversationId),
         onDelta: (t) => { acc += t; setStreaming(acc); },
         onDone: (m) => { setItems((xs) => [...xs, { id: m.id, role: 'ASSISTANT', text: m.structured?.answer ?? m.content, structured: m.structured }]); last.current = null; },
         onError: (e) => setError(e),
@@ -95,9 +105,9 @@ export function AskArchitect({ projectId, scope, scopeId, stepId, suggestions = 
         {stepId && <p className="mt-1 text-xs"><Badge tone="accent">About the selected step</Badge> <button className="ml-1 text-muted underline" onClick={onClearStep}>clear</button></p>}</header>
       <div className="flex-1 space-y-4 overflow-y-auto px-4 py-3" aria-live="polite">
         {loaded && items.length === 0 && !busy && <div><p className="text-sm text-muted">Ask anything about this part of your project.</p><div className="mt-2 flex flex-wrap gap-2">{suggestions.map((s) => <button key={s} onClick={() => send(s)} className="rounded-full border border-border px-3 py-1 text-xs hover:bg-subtle">{s}</button>)}</div></div>}
-        {items.map((m) => m.role === 'USER'
+        {items.map((m, idx) => m.role === 'USER'
           ? <div key={m.id} data-testid="user-message" className="ml-8 rounded-lg bg-accent/10 px-3 py-2 text-sm">{m.text}</div>
-          : <div key={m.id} data-testid="assistant-message" className="mr-4 rounded-lg border border-border px-3 py-2 text-sm"><p className="whitespace-pre-wrap">{m.text}</p>{m.structured && <Structured projectId={projectId} m={m.structured} />}</div>)}
+          : <div key={m.id} data-testid="assistant-message" className="mr-4 rounded-lg border border-border px-3 py-2 text-sm"><p className="whitespace-pre-wrap">{m.text}</p>{m.structured && <Structured projectId={projectId} m={m.structured} proposeHref={m.structured.needsArchitectureChange ? proposalHref(m, items[idx - 1]) : undefined} />}</div>)}
         {streaming !== null && <div data-testid="ask-stream" role="status" aria-label="Answer in progress" className="mr-4 rounded-lg border border-border px-3 py-2 text-sm"><p className="whitespace-pre-wrap">{streaming || 'Thinking…'}</p></div>}
         {error && (
           <div data-testid="ask-error"><Alert title="The architect couldn’t finish that answer" action={<Button variant="secondary" data-testid="ask-retry" onClick={retry}>Try again</Button>}>{error.message}</Alert></div>

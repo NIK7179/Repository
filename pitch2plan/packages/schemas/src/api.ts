@@ -6,7 +6,7 @@ export const ERROR_CODES = [
   'INTERPRETATION_NOT_FOUND', 'NO_PITCH', 'RATE_LIMITED', 'AI_OUTPUT_INVALID', 'AI_PROVIDER_ERROR',
   'AI_TIMEOUT', 'ORIGIN_NOT_ALLOWED', 'INTERNAL_ERROR',
   'INVALID_STATE', 'DISCOVERY_NOT_FOUND', 'ROUND_NOT_FOUND', 'REQUIREMENT_NOT_FOUND', 'CONFLICT_NOT_FOUND', 'BRIEF_NOT_FOUND',
-  'BRIEF_STALE', 'CONFIRMATION_BLOCKED', 'ARCHITECTURE_NOT_FOUND', 'JOB_NOT_FOUND', 'NODE_NOT_FOUND', 'TASK_NOT_FOUND', 'CONVERSATION_NOT_FOUND', 'PLAN_NOT_FOUND',
+  'BRIEF_STALE', 'CONFIRMATION_BLOCKED', 'ARCHITECTURE_NOT_FOUND', 'JOB_NOT_FOUND', 'NODE_NOT_FOUND', 'TASK_NOT_FOUND', 'CONVERSATION_NOT_FOUND', 'PLAN_NOT_FOUND', 'PROPOSAL_NOT_FOUND', 'STALE_PROPOSAL', 'MIGRATION_NOT_FOUND', 'MIGRATION_STALE', 'REVIEW_NOT_FOUND',
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
@@ -51,3 +51,5 @@ export const confirmBriefRequestSchema = z.object({ briefVersionId: z.uuid(), ac
 export const updateTaskStatusRequestSchema = z.object({ status: z.enum(['NOT_STARTED', 'IN_PROGRESS', 'COMPLETED', 'BLOCKED', 'SKIPPED']), reason: z.string().trim().max(500).optional() });
 export const validateCompletionRequestSchema = z.object({ confirmations: z.array(z.object({ position: z.number().int().min(0).max(20), confirmed: z.boolean() })).min(1).max(20) });
 export const updateStepRequestSchema = z.object({ status: z.enum(['NOT_STARTED', 'COMPLETED']) });
+
+export const acceptMigrationRequestSchema = z.object({ acknowledge: z.literal(true, { error: 'Confirm that you reviewed the progress migration' }) });

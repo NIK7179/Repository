@@ -4,10 +4,11 @@ An AI-powered solution architect. You describe an idea in your own words; Pitch2
 right discovery questions, confirms your requirements, designs a project-specific architecture, and then guides you
 through building it.
 
-> **Status: Phase 4 (implementable architecture).** Pitch an idea, answer discovery, confirm requirements, generate an architecture, then turn it
-> into a project-specific implementation plan: phases and tasks with dependencies, a workspace for every component, step-by-step guidance, honest
-> progress tracking, and an Ask Architect assistant that already knows your project. Architecture change proposals, repository write-back and
-> cloud integrations arrive in later phases. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+> **Status: Phase 5 (safe architecture evolution).** Everything from Phase 4, plus: request an architecture change in plain language and get an impact
+> analysis (affected requirements, decisions, components and implementation work, including completed work at risk) before anything changes. You approve
+> explicitly; Pitch2Plan then creates Architecture V2 and Implementation Plan V2, shows a deterministic diff, lets you review how your progress maps onto
+> the new plan, and keeps every V1 version and all history untouched. Also: production readiness review and failure-mode analysis. See
+> [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Quick start
 
@@ -41,6 +42,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 | `npm run worker` | Runs the background job worker (architecture generation) as its own process. In development the web app runs the same worker in-process (`WORKER_MODE=inline`), so `npm run dev` is enough |
 | `npm run eval:architecture` | Runs four reference projects through planner -> validate -> critic -> repair and prints designs and metrics for human review. Needs `AI_PROVIDER=anthropic` for a real evaluation; add `-- --deep` for full rationales |
 | `npm run eval:implementation` | Runs four reference architectures through the implementation planner -> validate -> critic -> repair pipeline and prints plans and metrics for human review (`-- --deep` for full task text). Needs `AI_PROVIDER=anthropic` for a real evaluation |
+| `npm run eval:change` | Runs four reference change requests (PostgreSQL to DynamoDB, Kafka to Kinesis, Anthropic to Azure OpenAI, multi-region) through the change analyzer and planner, applies the operations with the real applier and prints proposals, diffs and checks for human review (`-- --deep` for every note). Needs `AI_PROVIDER=anthropic` for a real evaluation |
 | `npm run test:ui` | Mounts the real React components in jsdom and drives them against the real production server and Postgres (`npm run build` first) |
 | `npm run test:e2e` | Playwright (real browser) against the production build (`npm run build` first) |
 | `npm run eval:discovery` | Runs four reference ideas through discovery and prints the questions for human review. Needs `AI_PROVIDER=anthropic` for a real evaluation; add `-- --deep` for a second round |

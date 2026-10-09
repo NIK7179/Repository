@@ -28,7 +28,7 @@ const toTask = (t: TaskRow): TaskRecord => ({
 const runInclude = { version: { select: { id: true } } } as const;
 const toRun = (r: Prisma.ImplementationGenerationRunGetPayload<{ include: typeof runInclude }>): ImplRunRecord => ({
   id: r.id, projectId: r.projectId, architectureVersionId: r.architectureVersionId, status: r.status, currentStage: r.currentStage, attempt: r.attempt, repairCount: r.repairCount, failureCode: r.failureCode,
-  failureMessage: r.failureMessage, jobId: r.jobId, requestedById: r.requestedById, createdAt: r.createdAt, startedAt: r.startedAt, heartbeatAt: r.heartbeatAt, finishedAt: r.finishedAt, planVersionId: r.version?.id ?? null,
+  failureMessage: r.failureMessage, jobId: r.jobId, requestedById: r.requestedById, createdAt: r.createdAt, startedAt: r.startedAt, heartbeatAt: r.heartbeatAt, finishedAt: r.finishedAt, planVersionId: r.version?.id ?? null, chainProposalId: r.chainProposalId,
 });
 class ProjectNotReady extends Error { constructor() { super('PROJECT_NOT_READY'); } }
 
@@ -53,29 +53,36 @@ export function createImplementationRepositories(prisma: PrismaClient): Implemen
         return {
           id: v.id, planId: v.planId, projectId: v.plan.projectId, versionNumber: v.versionNumber, architectureVersionId: v.architectureVersionId, generationRunId: v.generationRunId, summary: v.summary,
           componentCoverage: z.array(z.object({ stableKey: z.string(), reason: z.string() })).parse(v.componentCoverage), ai: (v.ai ?? {}) as Record<string, unknown>, createdAt: v.createdAt, phases, tasks,
+          activation: v.activation as PlanVersionRecord['activation'], supersedesPlanVersionId: v.supersedesPlanVersionId, sourceProposalId: v.sourceProposalId,
           issues: v.issues.map((i) => ({ id: i.id, stage: i.stage, source: i.source as 'STRUCTURAL', severity: i.severity as 'HIGH', category: i.category as 'OTHER', code: i.code, description: i.description, taskKeys: strings.parse(i.taskKeys), componentKeys: strings.parse(i.componentKeys), decisionKeys: strings.parse(i.decisionKeys), recommendation: i.recommendation })),
         } satisfies PlanVersionRecord;
       },
       async getTask(taskId) {
-        const t = await prisma.implementationTask.findUnique({ where: { id: taskId }, include: { ...taskInclude, planVersion: { select: { plan: { select: { projectId: true } } } }, progressEvents: { orderBy: { createdAt: 'asc' } } } });
+        const t = await prisma.implementationTask.findUnique({ where: { id: taskId }, include: { ...taskInclude, planVersion: { select: { activation: true, plan: { select: { projectId: true } } } }, progressEvents: { orderBy: { createdAt: 'asc' } } } });
         if (!t) return null;
         const events: ProgressEventRecord[] = t.progressEvents.map((e) => ({ id: e.id, fromStatus: taskStatus(e.fromStatus), toStatus: taskStatus(e.toStatus), reason: e.reason, actorId: e.actorId, createdAt: e.createdAt }));
-        return { ...toTask(t), projectId: t.planVersion.plan.projectId, events };
+        return { ...toTask(t), projectId: t.planVersion.plan.projectId, events, planActivation: t.planVersion.activation as PlanVersionRecord['activation'] };
       },
       async taskIdsDependingOn(taskId) { return (await prisma.taskDependency.findMany({ where: { dependsOnTaskId: taskId }, select: { taskId: true } })).map((d) => d.taskId); },
 
-      async startGeneration({ projectId, architectureVersionId, userId }) {
+      async startGeneration({ projectId, architectureVersionId, userId, chainProposalId }) {
         try {
           return await prisma.$transaction(async (tx) => {
-            const project = await tx.project.findFirst({ where: { id: projectId, status: 'ARCHITECTURE_READY', deletedAt: null }, select: { id: true } });
+            const project = await tx.project.findFirst({ where: { id: projectId, status: chainProposalId ? { in: ['ARCHITECTURE_READY', 'IMPLEMENTING'] } : 'ARCHITECTURE_READY', deletedAt: null }, select: { id: true } });
             if (!project) return null;
             if (await tx.implementationPlanVersion.findUnique({ where: { architectureVersionId } })) return null; // one plan per architecture version
-            const run = await tx.implementationGenerationRun.create({ data: { projectId, architectureVersionId, requestedById: userId }, include: runInclude });
+            const run = await tx.implementationGenerationRun.create({ data: { projectId, architectureVersionId, requestedById: userId, chainProposalId: chainProposalId ?? null }, include: runInclude });
             return toRun(run);
           });
         } catch (e) { if (isUnique(e)) return null; throw e; } // the partial unique index: another run is already active
       },
       async attachJob(runId, jobId) { await prisma.implementationGenerationRun.update({ where: { id: runId }, data: { jobId } }); },
+      async requeueRun(runId) { const r = await prisma.implementationGenerationRun.updateMany({ where: { id: runId, status: 'FAILED' }, data: { status: 'QUEUED', failureCode: null, failureMessage: null, finishedAt: null, jobId: null, currentStage: 'QUEUED' } }); return r.count === 1; },
+      async getRunByProposal(proposalId) { const r = await prisma.implementationGenerationRun.findUnique({ where: { chainProposalId: proposalId }, include: runInclude }); return r ? toRun(r) : null; },
+      async listPlanVersions(projectId) {
+        const rows = await prisma.implementationPlanVersion.findMany({ where: { plan: { projectId } }, orderBy: { versionNumber: 'desc' } });
+        return rows.map((r) => ({ id: r.id, versionNumber: r.versionNumber, architectureVersionId: r.architectureVersionId, activation: r.activation as PlanVersionRecord['activation'], sourceProposalId: r.sourceProposalId, createdAt: r.createdAt }));
+      },
       getRun,
       async getRunByJobId(jobId) { const r = await prisma.implementationGenerationRun.findUnique({ where: { jobId }, include: runInclude }); return r ? toRun(r) : null; },
       async getLatestRun(projectId) { const r = await prisma.implementationGenerationRun.findFirst({ where: { projectId }, orderBy: { createdAt: 'desc' }, include: runInclude }); return r ? toRun(r) : null; },
@@ -101,13 +108,16 @@ export function createImplementationRepositories(prisma: PrismaClient): Implemen
             // The plan must be built for the CURRENT, READY architecture version of a project that is still ARCHITECTURE_READY.
             const arch = await tx.architecture.findUnique({ where: { projectId: input.projectId } });
             const archVersion = await tx.architectureVersion.findUnique({ where: { id: input.architectureVersionId } });
-            const project = await tx.project.findFirst({ where: { id: input.projectId, status: 'ARCHITECTURE_READY', deletedAt: null } });
+            const thisRun = await tx.implementationGenerationRun.findUniqueOrThrow({ where: { id: input.runId } });
+            const project = await tx.project.findFirst({ where: { id: input.projectId, status: thisRun.chainProposalId ? { in: ['ARCHITECTURE_READY', 'IMPLEMENTING'] } : 'ARCHITECTURE_READY', deletedAt: null } });
             if (!arch || arch.currentVersionId !== input.architectureVersionId || archVersion?.status !== 'READY' || !project) throw new ProjectNotReady();
 
             const plan = await tx.implementationPlan.upsert({ where: { projectId: input.projectId }, create: { projectId: input.projectId }, update: {} });
             const last = await tx.implementationPlanVersion.findFirst({ where: { planId: plan.id }, orderBy: { versionNumber: 'desc' } });
             const v = await tx.implementationPlanVersion.create({
-              data: { planId: plan.id, versionNumber: (last?.versionNumber ?? 0) + 1, architectureVersionId: input.architectureVersionId, generationRunId: input.runId, summary: input.plan.summary, componentCoverage: json(input.plan.componentCoverage), ai: json(input.ai) },
+              data: { planId: plan.id, versionNumber: (last?.versionNumber ?? 0) + 1, architectureVersionId: input.architectureVersionId, generationRunId: input.runId, summary: input.plan.summary, componentCoverage: json(input.plan.componentCoverage), ai: json(input.ai),
+                // A plan built for a NEW architecture version stays pending until its progress migration is reviewed and accepted.
+                ...(thisRun.chainProposalId ? { activation: 'PENDING_REVIEW', supersedesPlanVersionId: plan.currentVersionId, sourceProposalId: thisRun.chainProposalId } : {}) },
             });
             const phaseIds = new Map<string, string>();
             for (const [i, p] of input.plan.phases.entries()) phaseIds.set(p.key, (await tx.implementationPhase.create({ data: { planVersionId: v.id, key: p.key, sequence: i, name: p.name, objective: p.objective, description: p.description } })).id);
@@ -130,7 +140,7 @@ export function createImplementationRepositories(prisma: PrismaClient): Implemen
             const deps = input.plan.tasks.flatMap((t) => [...new Set(t.dependsOn)].map((d) => ({ taskId: taskIds.get(t.key)!, dependsOnTaskId: taskIds.get(d)! })));
             if (deps.length) await tx.taskDependency.createMany({ data: deps });
             if (input.issues.length) await tx.implementationGenerationIssue.createMany({ data: input.issues.map((i) => ({ runId: input.runId, planVersionId: v.id, stage: i.stage, source: i.source, severity: i.severity, category: i.category, code: i.code, description: i.description, taskKeys: json(i.taskKeys), componentKeys: json(i.componentKeys), decisionKeys: json(i.decisionKeys), recommendation: i.recommendation })) });
-            await tx.implementationPlan.update({ where: { id: plan.id }, data: { currentVersionId: v.id } });
+            if (!thisRun.chainProposalId) await tx.implementationPlan.update({ where: { id: plan.id }, data: { currentVersionId: v.id } });
             return { planVersionId: v.id, created: true };
           }, { timeout: 60_000, maxWait: 10_000 });
         } catch (e) {

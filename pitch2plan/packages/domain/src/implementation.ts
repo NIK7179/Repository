@@ -25,6 +25,11 @@ const SAFE: Record<string, string> = {
   PROJECT_STATE_CHANGED: 'The project or its architecture changed while the plan was being generated.',
   INTERNAL_ERROR: 'Something went wrong on our side while planning the implementation.',
 };
+/** A plan waiting for its progress-migration review, or one replaced by a newer plan, is read-only: history is never rewritten and unreviewed work is never started. */
+function requireActivePlan(activation: string) {
+  if (activation === 'PENDING_REVIEW') throw new DomainError('INVALID_STATE', 'This plan is waiting for its progress migration to be reviewed. Review and accept the migration first.');
+  if (activation === 'SUPERSEDED') throw new DomainError('INVALID_STATE', 'This plan was replaced by a newer one. Its history is read-only.');
+}
 const toRunView = (r: ImplRunRecord) => ({ id: r.id, jobId: r.jobId, status: r.status, currentStage: r.currentStage, repairCount: r.repairCount, failureCode: r.failureCode, failureMessage: r.failureMessage, createdAt: r.createdAt, startedAt: r.startedAt, finishedAt: r.finishedAt, planVersionId: r.planVersionId });
 export type ImplRunView = ReturnType<typeof toRunView>;
 
@@ -97,8 +102,15 @@ export function createImplementationService(deps: { repos: Repositories; ai: Imp
     async generate(ctx: RequestContext, projectId: string) {
       let { project } = await requireProjectAccess(repos, ctx.userId, projectId, 'write');
       await recoverStale(project.id); project = (await repos.projects.findById(project.id))!;
-      requireStatus(project, 'ARCHITECTURE_READY');
+      const chainRetry = project.status === 'IMPLEMENTING'; // the plan for a NEW architecture version failed and is being retried
+      if (!chainRetry) requireStatus(project, 'ARCHITECTURE_READY');
       const k = await loadProjectKnowledge(repos, project);
+      if (chainRetry) {
+        if (!k.architecture.sourceProposalId || k.plan?.architectureVersionId === k.architecture.id) throw new DomainError('INVALID_STATE', 'There is no implementation plan to regenerate for this architecture version.');
+        const chained = await this.generateForProposal(k.architecture.sourceProposalId, ctx.userId);
+        if (!chained) throw new DomainError('INVALID_STATE', 'Implementation planning is already in progress for this architecture version.');
+        return { jobId: chained.jobId ?? chained.runId, generationRunId: chained.runId, status: 'QUEUED' as const };
+      }
       if (k.plan?.architectureVersionId === k.architecture.id) throw new DomainError('INVALID_STATE', 'An implementation plan already exists for this architecture version.');
       const run = await repos.implementation.startGeneration({ projectId: project.id, architectureVersionId: k.architecture.id, userId: ctx.userId });
       if (!run) throw new DomainError('INVALID_STATE', 'Implementation planning is already in progress, or the project changed.');
@@ -112,6 +124,25 @@ export function createImplementationService(deps: { repos: Repositories; ai: Imp
       return { jobId: jobId ?? run.id, generationRunId: run.id, status: 'QUEUED' as const };
     },
 
+    /** The implementation plan for the architecture version a change proposal produced. Idempotent: one proposal, one plan-generation chain. The plan stays pending until its migration is reviewed. */
+    async generateForProposal(proposalId: string, userId: string): Promise<{ runId: string; jobId: string | null } | null> {
+      const existing = await repos.implementation.getRunByProposal(proposalId);
+      if (existing) {
+        if (existing.status === 'FAILED' && (await repos.implementation.requeueRun(existing.id))) { const jobId = await queue.enqueue(IMPLEMENTATION_JOB, { runId: existing.id }, { singletonKey: `${existing.id}:${Date.now()}` }); if (jobId) await repos.implementation.attachJob(existing.id, jobId); return { runId: existing.id, jobId }; }
+        return existing.status === 'QUEUED' || existing.status === 'RUNNING' ? null : null;
+      }
+      const prop = await repos.changes.get(proposalId); if (!prop || prop.status !== 'APPLIED') return null;
+      const project = await repos.projects.findById(prop.projectId); if (!project || (project.status !== 'IMPLEMENTING' && project.status !== 'ARCHITECTURE_READY')) return null;
+      const k = await loadProjectKnowledge(repos, project);
+      if (k.architecture.sourceProposalId !== proposalId) return null; // a newer architecture version already exists
+      const run = await repos.implementation.startGeneration({ projectId: project.id, architectureVersionId: k.architecture.id, userId, chainProposalId: proposalId });
+      if (!run) return null;
+      let jobId: string | null = null;
+      try { jobId = await queue.enqueue(IMPLEMENTATION_JOB, { runId: run.id }, { singletonKey: run.id }); } catch (e) { logger.error({ runId: run.id, err: String(e) }, 'enqueue failed'); await failRun(run, 'ENQUEUE_FAILED'); return null; }
+      if (jobId) await repos.implementation.attachJob(run.id, jobId);
+      return { runId: run.id, jobId };
+    },
+
     async runGeneration(runId: string): Promise<{ outcome: 'SUCCEEDED' | 'FAILED' | 'ALREADY_DONE' | 'NOT_CLAIMED' | 'MISSING'; planVersionId?: string; created?: boolean; failureCode?: string }> {
       const existing = await repos.implementation.getRun(runId);
       if (!existing) return { outcome: 'MISSING' };
@@ -119,7 +150,7 @@ export function createImplementationService(deps: { repos: Repositories; ai: Imp
       const run = await repos.implementation.claimRun(runId, new Date(Date.now() - config.staleRunMs));
       if (!run) return { outcome: 'NOT_CLAIMED' };
       const project = await repos.projects.findById(run.projectId);
-      if (!project || project.status !== 'ARCHITECTURE_READY') { await failRun(run, 'PROJECT_STATE_CHANGED'); return { outcome: 'FAILED', failureCode: 'PROJECT_STATE_CHANGED' }; }
+      if (!project || (project.status !== 'ARCHITECTURE_READY' && !(run.chainProposalId && project.status === 'IMPLEMENTING'))) { await failRun(run, 'PROJECT_STATE_CHANGED'); return { outcome: 'FAILED', failureCode: 'PROJECT_STATE_CHANGED' }; }
       try {
         await repos.implementation.touchRun(run.id, { currentStage: 'LOADING_ARCHITECTURE' });
         const k = await loadProjectKnowledge(repos, project);
@@ -159,7 +190,10 @@ export function createImplementationService(deps: { repos: Repositories; ai: Imp
       const plan = planRef?.currentVersionId ? await repos.implementation.getVersion(planRef.currentVersionId) : null;
       const arch = plan ? await repos.architecture.getVersion(plan.architectureVersionId) : null;
       const state: ImplementationState = !available ? 'NOT_AVAILABLE' : plan ? 'READY' : run && (run.status === 'QUEUED' || run.status === 'RUNNING') ? 'GENERATING' : run?.status === 'FAILED' ? 'FAILED' : 'NOT_STARTED';
-      return { state, project: { id: project.id, name: project.name, status: project.status }, run: run ? toRunView(run) : null, plan: plan && arch ? buildPlanView(plan, arch) : null };
+      // A plan generated for a NEWER architecture version waits here until its progress migration is reviewed and accepted. The active plan is untouched meanwhile.
+      const pending = (await repos.implementation.listPlanVersions(project.id)).find((x) => x.activation === 'PENDING_REVIEW') ?? null;
+      return { state, project: { id: project.id, name: project.name, status: project.status }, run: run ? toRunView(run) : null, plan: plan && arch ? buildPlanView(plan, arch) : null,
+        pendingMigration: pending ? { planVersionId: pending.id, versionNumber: pending.versionNumber, sourceProposalId: pending.sourceProposalId } : null };
     },
 
     async getPlan(ctx: RequestContext, planVersionId: string) {
@@ -204,7 +238,7 @@ export function createImplementationService(deps: { repos: Repositories; ai: Imp
     /** Explicit transitions with history. Completing requires every validation step to be confirmed by the user; the system never claims it verified anything. */
     async updateStatus(ctx: RequestContext, taskId: string, input: { status: TaskStatus; reason?: string }) {
       const { task, project } = await accessTask(ctx, taskId, 'write');
-      requireStatus(project, 'ARCHITECTURE_READY', 'IMPLEMENTING');
+      requireStatus(project, 'ARCHITECTURE_READY', 'IMPLEMENTING'); requireActivePlan(task.planActivation);
       if (!canTransitionTask(task.status, input.status)) throw new DomainError('INVALID_STATE', `A task that is ${task.status.replaceAll('_', ' ').toLowerCase()} cannot become ${input.status.replaceAll('_', ' ').toLowerCase()}.`, { from: task.status, to: input.status });
       if (input.status === 'IN_PROGRESS' && task.status === 'NOT_STARTED') {
         const plan = await planOf(task);
@@ -226,7 +260,7 @@ export function createImplementationService(deps: { repos: Repositories; ai: Imp
     /** Records the user's own confirmation of validation steps. Never SYSTEM_VERIFIED: Pitch2Plan does not check external systems yet. */
     async confirmValidation(ctx: RequestContext, taskId: string, confirmations: Array<{ position: number; confirmed: boolean }>) {
       const { task, project } = await accessTask(ctx, taskId, 'write');
-      requireStatus(project, 'ARCHITECTURE_READY', 'IMPLEMENTING');
+      requireStatus(project, 'ARCHITECTURE_READY', 'IMPLEMENTING'); requireActivePlan(task.planActivation);
       if (task.status !== 'IN_PROGRESS') throw new DomainError('INVALID_STATE', 'Start the task before confirming its validation steps.');
       const valid = new Set(task.validations.map((v) => v.position));
       const bad = confirmations.filter((c) => !valid.has(c.position));
@@ -238,7 +272,7 @@ export function createImplementationService(deps: { repos: Repositories; ai: Imp
 
     async updateStep(ctx: RequestContext, taskId: string, stepId: string, status: 'NOT_STARTED' | 'COMPLETED') {
       const { task, project } = await accessTask(ctx, taskId, 'write');
-      requireStatus(project, 'ARCHITECTURE_READY', 'IMPLEMENTING');
+      requireStatus(project, 'ARCHITECTURE_READY', 'IMPLEMENTING'); requireActivePlan(task.planActivation);
       if (task.status !== 'IN_PROGRESS') throw new DomainError('INVALID_STATE', 'Start the task before marking its steps.');
       if (!(await repos.implementation.updateStepStatus({ taskId, stepId, status }))) throw new DomainError('TASK_NOT_FOUND', 'Step not found.');
       return { stepId, status };

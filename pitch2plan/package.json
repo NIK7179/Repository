@@ -28,7 +28,8 @@
     "eval:discovery": "tsx --env-file=.env scripts/eval-discovery.mts",
     "worker": "npm run start -w @pitch2plan/worker",
     "eval:architecture": "tsx --env-file=.env scripts/eval-architecture.mts",
-    "eval:implementation": "tsx --env-file=.env scripts/eval-implementation.mts"
+    "eval:implementation": "tsx --env-file=.env scripts/eval-implementation.mts",
+    "eval:change": "tsx --env-file=.env scripts/eval-change.mts"
   },
   "devDependencies": {
     "@eslint/js": "^9.30.0",

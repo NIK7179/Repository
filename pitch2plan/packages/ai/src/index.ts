@@ -16,3 +16,6 @@ export * from './providers/mock-architecture';
 export * from './capabilities/implementation';
 export * from './prompts/implementation';
 export * from './providers/mock-implementation';
+export * from './capabilities/change';
+export * from './prompts/change';
+export * from './providers/mock-change';

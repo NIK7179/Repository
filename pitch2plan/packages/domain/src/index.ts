@@ -16,3 +16,6 @@ export * from './implementation-context';
 export * from './implementation-pipeline';
 export * from './assistant';
 export * from './assistant-context';
+export { requirementsFingerprint } from './shared';
+export * from './change';
+export * from './derive-brief';

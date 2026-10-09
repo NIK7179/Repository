@@ -1,4 +1,4 @@
-# Architecture (Phase 4)
+# Architecture (Phase 5)
 
 Pitch2Plan is a **modular monolith**: one Next.js deployable, plus a reserved worker. Boundaries are enforced by
 package dependencies so modules can be extracted later if scale demands it (see ADR-001).
@@ -118,6 +118,30 @@ Ask Architect: ContextBuilder -> streamed answer (SSE) -> validated, classified,
 * **Streaming and failure.** SSE `start -> delta* -> done | error`. Authorization and scope errors are thrown before the stream opens (normal JSON errors). A provider error, timeout, dropped connection or cancel stores NO assistant message; the user's question is stored once (idempotent `clientMessageId`) so "Try again" reuses it. Usage is tracked per capability (`IMPLEMENTATION_*`, `TASK_ASSISTANT`) on success and failure.
 * **Conversations** are private to their owner and addressed by `(project, scope, scopeId)`.
 
+## Safe architecture evolution (Phase 5)
+
+```
+Request (user, assistant answer, or review finding)  ->  ChangeProposal bound to ONE architecture version (DRAFT)
+  analyze (job)     ->  READY_FOR_REVIEW: structured impact + deterministic enrichment from stored links and the plan
+  approve (human)   ->  approval record, requirement changes applied ONLY if the user confirmed them, one CHANGE run
+  apply (job)       ->  ChangePlanner returns OPERATIONS -> applier (code) builds candidate V2 -> structural/semantic checks -> critic -> bounded repair
+                        -> ONE transaction: V2 + graph + links + diff, V1 -> SUPERSEDED, proposal APPLIED   (project status never changes)
+                        -> chain: Implementation Plan V2 generated as PENDING_REVIEW
+  review migration  ->  user inspects carried / re-confirm / obsolete / new, then accepts (progress is never moved silently)
+```
+
+* **A proposal is first-class data**, never only a chat message: status machine enforced in the domain (`DRAFT, ANALYZING, READY_FOR_REVIEW, APPROVED, APPLYING, APPLIED, REJECTED, FAILED, STALE`), source (`USER_REQUEST`, `ASSISTANT_RECOMMENDATION`, `ARCHITECTURE_REVIEW` implemented), the base version it modifies (immutable, trigger-protected), impact items as rows (nodes, edges, decisions, drivers, requirements, tasks), and an append-only approval record. The other sources in the model are reserved.
+* **Impact is not prose.** The analyzer returns a strict structure (change type, affected objects with DIRECT/POTENTIAL, qualitative trade-offs, new/reusable work, requirement changes, recommendation, confidence). The service then enriches it deterministically: neighbours from the graph, requirements via stored decision and driver links, and completed/in-progress work at risk from the plan. Cost is qualitative only.
+* **Approval is a human act.** There is no path from the assistant or an AI call to `approve`. Approval is refused when the proposal is not READY_FOR_REVIEW, is stale, or needs requirement reconfirmation that was not given. These checks exist in the service AND the repository compare-and-set.
+* **Stale proposals are never applied blindly.** If the current version moved on, the proposal becomes STALE. Rebase creates a NEW proposal on the current version (re-analysed, approval required again) and keeps the stale one as history.
+* **Requirement changes are explicit.** `REQUIREMENT_CHANGE` (or proposed requirement changes) requires confirmation; on approval, new requirement versions and a new brief version are created in the same transaction (old ones stay). DRV codes are positional and never renumber; new drivers are appended.
+* **The model proposes operations; code applies them.** `ADD/REMOVE/REPLACE/UPDATE_NODE`, `ADD/REMOVE/UPDATE_EDGE`, `ADD/SUPERSEDE/UPDATE_DECISION`. A technology replacement that keeps the component's role keeps its `stableKey` (diff: REPLACED); a role change gets a new key with `replacesStableKey` lineage. UPDATE_NODE can never change the technology. A superseded decision is kept in V1 and its replacement gets a NEW key with `supersedesKey`; effective status is derived.
+* **Same quality gates as Phase 3.** The candidate V2 goes through structural validation, semantic rules, the critic and bounded repair. An approved change does not override integrity.
+* **Diff and migration are computed from stored data**, not by AI: `diffArchitectures` (ADDED/REMOVED/MODIFIED/UNCHANGED/REPLACED, decisions SUPERSEDED) and `mapTasksAcrossPlans`. Outcomes: `CARRIED_FORWARD` only for completed work whose components, connections and decisions are unchanged; `REQUIRES_REVALIDATION` for completed work touching a modified component, changed connection, changed decision, or system-wide work after any change; `OBSOLETE` for work on a replaced/removed component; `NEW`; `UNCHANGED_NOT_STARTED`. Work done on a replaced technology is never carried forward.
+* **Plan V2 starts PENDING_REVIEW.** Its tasks cannot be started until the migration is accepted. Acceptance is one transaction guarded by compare-and-set and a staleness check against plan V1 progress; carried-forward tasks get a recorded event, everything else starts again. Plan V1 and its history are never modified.
+* **Idempotency in layers.** One approved proposal produces at most one architecture version (unique `sourceProposalId`), one CHANGE run (unique `proposalId`; one ACTIVE change run per project via a partial unique index), and one plan chain. A vanished worker is failed by the sweeper and the SAME run is retried.
+* **Review and failure modes.** A production readiness review (13 areas) stores findings with the version it reviewed; a finding that needs an architecture change can create a proposal with `reviewFindingId`. "What happens if this fails?" is computed from the graph (downstream/upstream, critical paths, existing and missing mitigation).
+
 ## Security
 
 Server-side authorization on every project operation; workspace ids from the browser are verified against memberships;
@@ -132,6 +156,7 @@ The domain provisions the internal `User` + personal workspace from that identit
 In production the dev provider refuses to start unless `ALLOW_DEV_AUTH=true`.
 
 ## Known limitations
+* **Phase 5 limits.** Live Claude quality of change analysis and planning is unverified (run `npm run eval:change`). Proposal sources `IMPLEMENTATION_DISCOVERY`, `FUTURE_COST_OPTIMIZATION` and `FUTURE_SECURITY_REVIEW` are reserved, not built. No team approval workflow. The diff canvas shows the new graph plus removed components, not a side-by-side. Task mapping is deterministic and conservative: it prefers asking you to re-confirm over claiming work is still valid. Nothing executes in a cloud account or repository.
 * **Phase 4 limits.** Live Claude plan and answer quality is unverified (run `npm run eval:implementation`). Only the current READY architecture is planned; plan V2 for a later architecture version is not built. Technology icons are still monogram badges. Documentation grounding/RAG is not built (links are unverified suggestions). Commands and code are shown, never executed or written back. Completion is user-confirmed only. The assistant cannot change the architecture (change proposals come later). Conversations are private per user (no team sharing yet).
 
 * **Auth:** only the dev provider is implemented. The Clerk (or similar) adapter is a documented seam, not yet built.

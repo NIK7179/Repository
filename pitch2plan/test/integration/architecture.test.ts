@@ -435,7 +435,7 @@ describe('versioning, stable keys and immutability', () => {
 
 // ---------- helpers
 function planFor(c: Awaited<ReturnType<typeof contextFor>>): ArchitecturePlan {
-  return mockPlan({ requirements: c.input.requirements, drivers: c.input.drivers, brief: c.input.brief as { openQuestions?: Array<{ text: string }> } }) as ArchitecturePlan;
+  return mockPlan({ requirements: c.input.requirements, drivers: c.input.drivers, brief: c.input.brief as { openQuestions?: Array<{ text: string }> } }) as unknown as ArchitecturePlan;
 }
 function withOrphan(plan: ArchitecturePlan): ArchitecturePlan {
   return applyRepairPatch(plan, { changes: [{ issueIndex: 0, description: 'test fixture' }], nodes: { add: [{ ...plan.nodes[0]!, stableKey: 'lonely-cache', name: 'Lonely cache', technology: 'Some cache', technologySlug: 'some-cache', category: 'CACHE', criticality: 'LOW', replacesStableKey: null }], update: [], remove: [] }, edges: { add: [], update: [], remove: [] }, decisions: { add: [], update: [], remove: [] }, addRisks: [], addAssumptions: [] });

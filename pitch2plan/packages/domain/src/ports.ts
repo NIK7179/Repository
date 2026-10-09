@@ -29,7 +29,7 @@ export interface AuditEventInput {
 }
 
 /** Persistence ports. Implemented by packages/db; the domain never imports Prisma. */
-export interface Repositories extends DiscoveryRepositories, ArchitectureRepositories, ImplementationRepositories {
+export interface Repositories extends DiscoveryRepositories, ArchitectureRepositories, ImplementationRepositories, ChangeRepositories {
   users: {
     findById(id: string): Promise<UserRecord | null>;
     /** Idempotent: creates the user, a personal workspace and an OWNER membership on first sight. */
@@ -181,6 +181,8 @@ export interface GenerationRunRecord {
   id: string; projectId: string; briefVersionId: string; status: RunStatus; currentStage: string; attempt: number; repairCount: number;
   failureCode: string | null; failureMessage: string | null; jobId: string | null; requestedById: string;
   createdAt: Date; startedAt: Date | null; heartbeatAt: Date | null; finishedAt: Date | null; versionId: string | null;
+  /** INITIAL, or CHANGE when the run applies an approved change proposal. */
+  mode: string; proposalId: string | null; baseVersionId: string | null;
 }
 export interface IssueRecord extends ArchitectureIssue { id: string; stage: string }
 export interface NodeRecord {
@@ -196,10 +198,13 @@ export interface DecisionRecord {
   id: string; versionId: string; key: string; title: string; problem: string; decision: string; rationale: string; status: 'PROPOSED' | 'ACCEPTED' | 'DEPRECATED' | 'SUPERSEDED';
   tradeoffs: string[]; risks: string[]; alternatives: Array<{ technology: string; reasoning: string }>; consequences: string[]; confidence: number; createdAt: Date;
   driverIds: string[]; requirementIds: string[]; nodeStableKeys: string[]; edgeKeys: string[];
+  /** The decision (in the previous version) this one replaces, and the decision (in a later version) that replaces this one. History is never rewritten: effectiveStatus is derived. */
+  supersedesKey: string | null; supersededByKey: string | null; effectiveStatus: string;
 }
 export interface ArchitectureVersionSummary {
   id: string; architectureId: string; projectId: string; versionNumber: number; status: 'DRAFT' | 'VALIDATING' | 'CRITIQUING' | 'READY' | 'FAILED' | 'SUPERSEDED';
   generationRunId: string; briefVersionId: string; summary: string; createdAt: Date; finalizedAt: Date | null; counts: { nodes: number; edges: number; decisions: number };
+  parentVersionId: string | null; sourceProposalId: string | null;
 }
 export interface ArchitectureVersionRecord extends ArchitectureVersionSummary {
   assumptions: string[]; unresolvedQuestions: string[]; risks: Array<{ text: string; severity: Priority; nodeStableKeys: string[] }>; ai: Record<string, unknown>;
@@ -271,10 +276,12 @@ export interface ImplIssueRecord extends ImplIssue { id: string; stage: string }
 export interface PlanVersionRecord {
   id: string; planId: string; projectId: string; versionNumber: number; architectureVersionId: string; generationRunId: string; summary: string;
   componentCoverage: Array<{ stableKey: string; reason: string }>; ai: Record<string, unknown>; createdAt: Date; phases: PhaseRecord[]; tasks: TaskRecord[]; issues: ImplIssueRecord[];
+  activation: 'ACTIVE' | 'PENDING_REVIEW' | 'SUPERSEDED'; supersedesPlanVersionId: string | null; sourceProposalId: string | null;
 }
 export interface ImplRunRecord {
   id: string; projectId: string; architectureVersionId: string; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED'; currentStage: string; attempt: number; repairCount: number;
   failureCode: string | null; failureMessage: string | null; jobId: string | null; requestedById: string; createdAt: Date; startedAt: Date | null; heartbeatAt: Date | null; finishedAt: Date | null; planVersionId: string | null;
+  chainProposalId: string | null;
 }
 export interface PersistPlanInput {
   runId: string; projectId: string; architectureVersionId: string; plan: ImplementationPlan; decisionIdByKey: Record<string, string>; requirementIdByCode: Record<string, string>;
@@ -287,9 +294,12 @@ export interface ImplementationRepositories {
   implementation: {
     getPlanByProject(projectId: string): Promise<{ id: string; projectId: string; currentVersionId: string | null } | null>;
     getVersion(planVersionId: string): Promise<PlanVersionRecord | null>;
-    getTask(taskId: string): Promise<(TaskRecord & { projectId: string; events: ProgressEventRecord[] }) | null>;
+    getTask(taskId: string): Promise<(TaskRecord & { projectId: string; events: ProgressEventRecord[]; planActivation: 'ACTIVE' | 'PENDING_REVIEW' | 'SUPERSEDED' }) | null>;
     taskIdsDependingOn(taskId: string): Promise<string[]>;
-    startGeneration(input: { projectId: string; architectureVersionId: string; userId: string }): Promise<ImplRunRecord | null>;
+    startGeneration(input: { projectId: string; architectureVersionId: string; userId: string; chainProposalId?: string }): Promise<ImplRunRecord | null>;
+    getRunByProposal(proposalId: string): Promise<ImplRunRecord | null>;
+    requeueRun(runId: string): Promise<boolean>;
+    listPlanVersions(projectId: string): Promise<Array<{ id: string; versionNumber: number; architectureVersionId: string; activation: 'ACTIVE' | 'PENDING_REVIEW' | 'SUPERSEDED'; sourceProposalId: string | null; createdAt: Date }>>;
     attachJob(runId: string, jobId: string): Promise<void>;
     getRun(id: string): Promise<ImplRunRecord | null>;
     getRunByJobId(jobId: string): Promise<ImplRunRecord | null>;
@@ -321,4 +331,85 @@ export interface ImplementationAiPort {
 export type AssistantStreamEvent = { type: 'delta'; text: string } | { type: 'done'; ai: AiMeta };
 export interface AssistantAiPort {
   stream(input: { context: { workspaceId: string; projectId: string; userId: string }; projectContext: unknown; history: Array<{ role: 'user' | 'assistant'; content: string }>; question: string; signal?: AbortSignal }): AsyncIterable<AssistantStreamEvent>;
+}
+
+
+// ====================================================================== Phase 5: change proposals, review, migration
+import type {
+  ArchitectureDiff, ChangeAnalysis, ChangePlan, MigItem, MigrationSummary, ProposalState, RequirementChange, ReviewFindingDraft, ReviewOutput,
+} from '@pitch2plan/schemas';
+
+export const CHANGE_ANALYZE_JOB = 'change.analyze';
+/** payload.runId carries the PROPOSAL id for analysis jobs and the architecture RUN id for application jobs. */
+export const CHANGE_APPLY_JOB = 'change.apply';
+
+export interface ImpactItemRecord { kind: 'NODE' | 'EDGE' | 'DECISION' | 'DRIVER' | 'REQUIREMENT' | 'TASK'; refKey: string; relation: 'DIRECT' | 'POTENTIAL'; reason: string; taskId: string | null }
+export interface ProposalApprovalRecord { decision: 'APPROVED' | 'REJECTED'; decidedById: string; decidedAt: Date; architectureVersionId: string; confirmedRequirementChanges: boolean; note: string | null }
+export interface ProposalRecord {
+  id: string; projectId: string; baseVersionId: string; source: string; requestedChange: string; reason: string | null; status: ProposalState; changeType: string | null; severity: string | null;
+  requiresReconfirmation: boolean; requirementChanges: RequirementChange[]; analysis: ChangeAnalysis | null; analysisAi: Record<string, unknown> | null; failureCode: string | null; failureMessage: string | null;
+  assistantConversationId: string | null; assistantMessageId: string | null; reviewFindingId: string | null; rebasedFromId: string | null; briefVersionId: string | null; resultVersionId: string | null;
+  createdById: string; createdAt: Date; updatedAt: Date; analyzedAt: Date | null; analysisAttempt: number; impactItems: ImpactItemRecord[]; approval: ProposalApprovalRecord | null; runId: string | null;
+}
+export interface ReviewFindingRecord extends ReviewFindingDraft { id: string; reviewId: string }
+export interface ReviewRecord { id: string; projectId: string; architectureVersionId: string; createdById: string; assessment: string; ai: Record<string, unknown>; createdAt: Date; findings: ReviewFindingRecord[] }
+export interface MigrationRecord { id: string; fromPlanVersionId: string; toPlanVersionId: string; proposalId: string | null; acceptedById: string; acceptedAt: Date; summary: MigrationSummary; items: Array<MigItem & { id: string }> }
+
+/** Requirement edits applied atomically with an approval. @new:N placeholders (in the brief) stand for the ids of requirements this application creates. */
+export interface RequirementApplication {
+  ops: Array<{ kind: 'ADD'; category: string; statement: string; value: string | null } | { kind: 'MODIFY'; requirementId: string; statement: string; value: string | null } | { kind: 'REMOVE'; requirementId: string }>;
+  brief: { content: ArchitectureBriefContent; ai: AiMeta; drivers: ArchitectureDriverDraft[] };
+}
+export interface FinalizeChangeInput {
+  runId: string; proposalId: string; projectId: string; baseVersionId: string; briefVersionId: string; plan: ArchitecturePlan; driverIdByCode: Record<string, string>; requirementIdByCode: Record<string, string>;
+  issues: Array<ArchitectureIssue & { stage: string }>; ai: Record<string, unknown>; diff: ArchitectureDiff;
+}
+export interface ChangeRepositories {
+  changes: {
+    create(input: { projectId: string; baseVersionId: string; source: string; requestedChange: string; reason?: string; assistantConversationId?: string; assistantMessageId?: string; reviewFindingId?: string; rebasedFromId?: string; userId: string }): Promise<ProposalRecord>;
+    get(id: string): Promise<ProposalRecord | null>;
+    list(projectId: string): Promise<ProposalRecord[]>;
+    /** DRAFT, READY_FOR_REVIEW or FAILED (without approval) -> DRAFT, clearing the analysis. */
+    edit(input: { id: string; requestedChange: string; reason: string | null }): Promise<boolean>;
+    startAnalysis(id: string): Promise<boolean>;
+    claimAnalysis(id: string, staleBefore: Date): Promise<ProposalRecord | null>;
+    saveAnalysis(input: { id: string; analysis: ChangeAnalysis; ai: Record<string, unknown>; severity: string; requiresReconfirmation: boolean; requirementChanges: RequirementChange[]; items: ImpactItemRecord[] }): Promise<boolean>;
+    failAnalysis(input: { id: string; code: string; message: string }): Promise<boolean>;
+    listStaleAnalyses(before: Date): Promise<ProposalRecord[]>;
+    reject(input: { id: string; userId: string; note: string | null }): Promise<boolean>;
+    /** One transaction: stale check against the CURRENT version, approval record, requirement/brief changes, CHANGE run. */
+    approve(input: { id: string; userId: string; note: string | null; confirmedRequirementChanges: boolean; requirementApplication?: RequirementApplication }): Promise<{ result: 'OK'; run: GenerationRunRecord } | { result: 'STALE' | 'INVALID' }>;
+    /** FAILED (with an approval) -> APPLYING by re-queuing the SAME run (one approved proposal never has two runs). */
+    retryApply(input: { id: string }): Promise<GenerationRunRecord | null>;
+    /** Marks every open proposal bound to an older version STALE. Returns how many changed. */
+    markStale(projectId: string, currentVersionId: string): Promise<number>;
+    failApply(input: { runId: string; code: string; message: string; issues?: Array<ArchitectureIssue & { stage: string }> }): Promise<boolean>;
+    /** One transaction, idempotent per run and per proposal: supersede the base version, create the new one with lineage, store the diff, mark the proposal APPLIED and others STALE. */
+    finalizeChange(input: FinalizeChangeInput): Promise<{ versionId: string; versionNumber: number; created: boolean }>;
+    getByRun(runId: string): Promise<ProposalRecord | null>;
+  };
+  diffs: { get(fromVersionId: string, toVersionId: string): Promise<ArchitectureDiff | null> };
+  reviews: {
+    create(input: { projectId: string; architectureVersionId: string; userId: string; assessment: string; ai: Record<string, unknown>; findings: ReviewFindingDraft[] }): Promise<ReviewRecord>;
+    latest(projectId: string, architectureVersionId?: string): Promise<ReviewRecord | null>;
+    get(id: string): Promise<ReviewRecord | null>;
+    getFinding(id: string): Promise<(ReviewFindingRecord & { projectId: string; architectureVersionId: string }) | null>;
+  };
+  migrations: {
+    get(toPlanVersionId: string): Promise<MigrationRecord | null>;
+    /** One transaction: activate plan V2, supersede V1, carry completed work forward (with history), record the reviewed mapping. Returns null if V2 was not pending. */
+    accept(input: { fromPlanVersionId: string; toPlanVersionId: string; userId: string; proposalId: string | null; items: MigItem[]; summary: MigrationSummary }): Promise<MigrationRecord | null>;
+  };
+}
+export interface ChangeArchitectureView { architecture: ImplPlanInput['architecture']; requirements: ImplPlanInput['requirements']; drivers: ImplPlanInput['drivers'] }
+export interface ChangeAnalysisInput extends ChangeArchitectureView {
+  context: { workspaceId: string; projectId: string; userId: string }; requestedChange: string; reason: string | null;
+  plan: null | { versionNumber: number; progress: { completed: number; applicable: number }; tasks: Array<{ key: string; title: string; status: string; taskType: string; componentKeys: string[]; decisionKeys: string[] }> };
+}
+export interface ChangePlanInput extends ChangeArchitectureView { context: ChangeAnalysisInput['context']; requestedChange: string; analysis: ChangeAnalysis; basePlan: ArchitecturePlan }
+export interface ReviewInput extends ChangeArchitectureView { context: ChangeAnalysisInput['context']; deterministicFindings: ReviewFindingDraft[] }
+export interface ChangeAiPort {
+  analyze(input: ChangeAnalysisInput): Promise<AiResult<ChangeAnalysis>>;
+  plan(input: ChangePlanInput): Promise<AiResult<ChangePlan>>;
+  review(input: ReviewInput): Promise<AiResult<ReviewOutput>>;
 }

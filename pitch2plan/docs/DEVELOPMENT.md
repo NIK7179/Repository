@@ -45,3 +45,10 @@ Never persist unvalidated model output. Never log secrets or (outside debug) pro
 * The UI tests (`apps/web/test-ui`) drive the real production server and its inline worker; `architectureReadyViaApi` / `implementationReadyViaApi` set up state. Use `fireEvent.click` on React Flow nodes. When a control is disabled while a request is in flight, `waitFor` it to be enabled before clicking.
 * Mutation discipline: remove one safeguard, run the relevant tests, expect a failure, restore. Use a runner that restores in a `trap` and runs in the background with a per-run timeout; a killed runner once left a deliberately broken file behind.
 * `npm run eval:implementation` is for humans: read the plans; the printed metrics are heuristics.
+
+## Phase 5 notes
+* `test/integration/change.test.ts` builds a started project (V1, plan V1, several completed tasks) and drives the whole change path with the mock AI. Script model output with `makeApp({ script })`; to test staleness, approve a second proposal first.
+* UI tests that navigate must go through `lib/navigate` (`__setNavigator`) and reset the captured URLs per test: a shared log lets `waitFor` pass on a previous test's URL.
+* Never create several promises up front and await them one by one (`for (const p of [a(), b()]) await expect(p).rejects...`): a later one can reject before a handler is attached and vitest reports an unhandled rejection. Create each lazily.
+* Mutation runs: use a runner that restores in `finally` and keeps on-disk backups (`/tmp/p5bak`), runs in the background with a per-mutant timeout, and logs results. A layered safeguard (service check + transition table + repository compare-and-set) needs a direct test per layer; a mutant that can never be the deciding layer is documented as equivalent.
+* `npm run eval:change` is for humans: read the proposals; the printed checks are heuristics.

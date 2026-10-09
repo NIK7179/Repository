@@ -87,6 +87,9 @@ export function ImplementationView({ projectId, decisionFilter, componentFilter 
         <p className="mt-2 text-xs text-muted">{current ? <>Current phase: <span className="font-medium text-fg" data-testid="current-phase">{current.name}</span> · </> : 'All phases complete · '}Plan v{p.version.versionNumber} for architecture v{p.version.architectureVersionNumber}</p>
       </section>
 
+      {data.pendingMigration && (
+        <div data-testid="pending-migration"><Alert tone="warn" title="A new implementation plan is waiting for your review" action={<Link href={`/projects/${projectId}/implementation/migration/${data.pendingMigration.planVersionId}?from=${p.version.id}`}><Button>Review progress migration</Button></Link>}>
+          The architecture changed, so a new plan (V{data.pendingMigration.versionNumber}) was prepared. Your current plan and progress are unchanged until you review and accept how progress carries over.</Alert></div>)}
       {p.next && (
         <section data-testid="next-task" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-accent/40 bg-accent/5 p-4">
           <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-accent">{p.next.kind === 'CONTINUE' ? 'Continue where you left off' : 'Recommended next step'}</p><h3 className="truncate text-base font-semibold">{p.next.title}</h3><p className="text-sm text-muted">{p.next.reason}</p></div>

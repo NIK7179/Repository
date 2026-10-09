@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@pitch2plan/ui';
 
-const TABS = [['', 'Overview'], ['/discovery', 'Discovery'], ['/brief', 'Brief'], ['/architecture', 'Architecture'], ['/decisions', 'Decisions'], ['/implementation', 'Implementation']] as const;
+const TABS = [['', 'Overview'], ['/discovery', 'Discovery'], ['/brief', 'Brief'], ['/architecture', 'Architecture'], ['/decisions', 'Decisions'], ['/implementation', 'Implementation'], ['/changes', 'Change Requests'], ['/review', 'Review']] as const;
 
 export function ProjectNav({ projectId }: { projectId: string }) {
   const path = usePathname();

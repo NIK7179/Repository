@@ -71,6 +71,8 @@ export const architectureDecisionSchema = z.object({
   key: z.string().regex(/^adr-\d{3}$/, 'decision keys look like adr-001'), ...decisionCore,
   tradeoffs: decisionLists.tradeoffs.default([]), risks: decisionLists.risks.default([]), alternatives: decisionLists.alternatives.default([]), consequences: decisionLists.consequences.default([]),
   driverCodes: decisionLists.driverCodes.default([]), requirementCodes: decisionLists.requirementCodes.default([]), nodeStableKeys: decisionLists.nodeStableKeys.default([]), edgeIds: decisionLists.edgeIds.default([]),
+  /** Set only by a change application: this decision replaces the (still preserved) decision with this key in the previous version. */
+  supersedesKey: z.string().regex(/^adr-\d{3}$/).nullable().default(null),
 });
 export type ArchitectureDecisionDraft = z.infer<typeof architectureDecisionSchema>;
 
