@@ -5,6 +5,8 @@ export const ERROR_CODES = [
   'UNAUTHENTICATED', 'FORBIDDEN', 'VALIDATION_ERROR', 'PROJECT_NOT_FOUND', 'PITCH_NOT_FOUND',
   'INTERPRETATION_NOT_FOUND', 'NO_PITCH', 'RATE_LIMITED', 'AI_OUTPUT_INVALID', 'AI_PROVIDER_ERROR',
   'AI_TIMEOUT', 'ORIGIN_NOT_ALLOWED', 'INTERNAL_ERROR',
+  'INVALID_STATE', 'DISCOVERY_NOT_FOUND', 'ROUND_NOT_FOUND', 'REQUIREMENT_NOT_FOUND', 'CONFLICT_NOT_FOUND', 'BRIEF_NOT_FOUND',
+  'BRIEF_STALE', 'CONFIRMATION_BLOCKED',
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
@@ -35,3 +37,13 @@ export const devSignInRequestSchema = z.object({
   email: z.string().trim().toLowerCase().pipe(z.email('Enter a valid email address')),
   name: z.string().trim().max(80).optional(),
 });
+
+export const editRequirementRequestSchema = z.object({
+  statement: z.string().trim().min(5, 'Describe the requirement in at least 5 characters').max(500, 'Keep it under 500 characters'),
+  value: z.string().trim().max(200).nullable().optional(),
+});
+export const resolveConflictRequestSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('KEEP_ONE'), keepRequirementId: z.uuid(), note: z.string().trim().max(500).optional() }),
+  z.object({ action: z.literal('DISMISS'), note: z.string().trim().min(3, 'Tell us briefly why this is not a conflict').max(500) }),
+]);
+export const confirmBriefRequestSchema = z.object({ briefVersionId: z.uuid(), acceptedUnknownIds: z.array(z.string()).max(50).default([]) });

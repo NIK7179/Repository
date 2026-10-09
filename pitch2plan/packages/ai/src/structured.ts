@@ -37,20 +37,23 @@ export interface StructuredOptions<T> {
  * On failure, one repair round that shows the model exactly what was wrong.
  * If it still fails, throws AI_OUTPUT_INVALID. Nothing malformed is ever returned.
  */
-export async function runStructured<T>(opts: StructuredOptions<T>): Promise<{ value: T; result: LLMResult; repaired: boolean }> {
+export async function runStructured<T>(opts: StructuredOptions<T>): Promise<{ value: T; result: LLMResult; repaired: boolean; usage: { inputTokens: number; outputTokens: number } }> {
   const { gateway, schema, meta } = opts;
   const maxRepairs = opts.repairAttempts ?? 1;
   let request = opts.request;
   let lastIssues: string[] = [];
+  const usage = { inputTokens: 0, outputTokens: 0 };
 
   for (let round = 0; round <= maxRepairs; round++) {
     const result = await gateway.generate(request, meta);
+    usage.inputTokens += result.usage.inputTokens ?? 0;
+    usage.outputTokens += result.usage.outputTokens ?? 0;
     let issues: string[];
     try {
       const parsed = schema.safeParse(extractJson(result.text));
       if (parsed.success) {
         issues = opts.semantic?.(parsed.data) ?? [];
-        if (issues.length === 0) return { value: parsed.data, result, repaired: round > 0 };
+        if (issues.length === 0) return { value: parsed.data, result, repaired: round > 0, usage };
       } else {
         issues = parsed.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`);
       }

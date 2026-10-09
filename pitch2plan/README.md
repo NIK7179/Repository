@@ -4,9 +4,9 @@ An AI-powered solution architect. You describe an idea in your own words; Pitch2
 right discovery questions, confirms your requirements, designs a project-specific architecture, and then guides you
 through building it.
 
-> **Status: Phase 1 (foundation).** Sign in, create projects, save your pitch, and get a validated AI
-> interpretation that separates *what you said* from *what the AI inferred*. Discovery, architecture generation,
-> the canvas and implementation guidance arrive in later phases. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+> **Status: Phase 2 (requirement discovery).** Sign in, pitch an idea, answer dynamically generated discovery questions,
+> review an Architecture Brief, resolve contradictions, and confirm your requirements. Architecture generation, the canvas and
+> implementation guidance arrive in later phases. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Quick start
 
@@ -37,7 +37,9 @@ ANTHROPIC_API_KEY=sk-ant-...
 | `npm run dev` / `build` / `start` | Next.js app |
 | `npm run lint` / `typecheck` | ESLint, then `tsc` in every package |
 | `npm test` | Vitest: unit tests and integration tests against `TEST_DATABASE_URL` (schema rebuilt on each run) |
-| `npm run test:e2e` | Playwright against the production build (`npm run build` first) |
+| `npm run test:ui` | Mounts the real React components in jsdom and drives them against the real production server and Postgres (`npm run build` first) |
+| `npm run test:e2e` | Playwright (real browser) against the production build (`npm run build` first) |
+| `npm run eval:discovery` | Runs four reference ideas through discovery and prints the questions for human review. Needs `AI_PROVIDER=anthropic` for a real evaluation; add `-- --deep` for a second round |
 | `npm run db:up` / `db:down` | Local PostgreSQL via Docker Compose |
 | `npm run db:migrate` | `prisma migrate deploy` |
 | `npm run db:migrate:sql` | Engine-free fallback that applies the same SQL migrations (CI, restricted networks) |
@@ -56,6 +58,8 @@ ANTHROPIC_API_KEY=sk-ant-...
 | `ANTHROPIC_API_KEY` | none | Required for `anthropic`. Server-side only; never sent to the browser. |
 | `ANTHROPIC_MODEL` | `claude-sonnet-5-5` | |
 | `LLM_TIMEOUT_MS` / `LLM_MAX_RETRIES` | `60000` / `2` | Gateway policy. |
+| `DISCOVERY_MAX_ROUNDS` | `3` | Standard discovery rounds before the brief is offered automatically. |
+| `DISCOVERY_MAX_QUESTIONS` | `6` | Maximum questions per round. |
 | `LOG_LEVEL` | `info` | pino level. |
 | `DEBUG_LOG_PROMPTS` | `false` | Development only; prompts can contain sensitive user data. |
 
@@ -73,6 +77,6 @@ docs/           architecture, development guide, ADRs
 infra/          docker-compose
 ```
 
-## Known limitations (Phase 1)
+## Known limitations
 
 See the end of [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#known-limitations).

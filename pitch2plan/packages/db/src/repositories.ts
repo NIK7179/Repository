@@ -3,6 +3,7 @@ import type {
 } from '@pitch2plan/domain';
 import { ideaInterpretationSchema } from '@pitch2plan/schemas';
 import type { PrismaClient } from './client';
+import { createDiscoveryRepositories } from './repositories-discovery';
 import type { Prisma } from './generated/client';
 
 const isUniqueViolation = (e: unknown) => !!e && typeof e === 'object' && (e as { code?: string }).code === 'P2002';
@@ -43,6 +44,7 @@ export function createRepositories(prisma: PrismaClient): Repositories {
   const toPitch = (p: PitchRecord): PitchRecord => p;
 
   return {
+    ...createDiscoveryRepositories(prisma),
     users: {
       async findById(id) {
         const u = await prisma.user.findUnique({ where: { id } });
@@ -70,6 +72,7 @@ export function createRepositories(prisma: PrismaClient): Repositories {
       },
       touch: async (id) => { await prisma.project.update({ where: { id }, data: { updatedAt: new Date() } }); },
       setStatus: async (id, status) => { await prisma.project.update({ where: { id }, data: { status } }); },
+      transitionStatus: async (id, from, to) => (await prisma.project.updateMany({ where: { id, status: from, deletedAt: null }, data: { status: to } })).count === 1,
       softDelete: async (id) => { await prisma.project.update({ where: { id }, data: { deletedAt: new Date() } }); },
     },
     pitches: {

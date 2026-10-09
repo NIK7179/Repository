@@ -1,4 +1,4 @@
-# Architecture (Phase 1)
+# Architecture (Phase 2)
 
 Pitch2Plan is a **modular monolith**: one Next.js deployable, plus a reserved worker. Boundaries are enforced by
 package dependencies so modules can be extracted later if scale demands it (see ADR-001).
@@ -48,6 +48,28 @@ their Zod contracts live in `packages/schemas/src/architecture.ts` and arrive wi
 * Orchestration is deterministic code, not autonomous agents. Interfaces for the later steps are in `capabilities/future.ts`.
 * The pitch is passed as delimited, untrusted data; delimiter injection is stripped; model output never triggers actions.
 
+## Discovery (Phase 2)
+
+```
+Pitch -> IdeaInterpreter -> [start] seed requirements + unknowns (U1..Un)
+      -> loop: ClarificationQuestionGenerator (gap analysis + questions)
+               user answers -> RequirementExtractor (new / updated requirements, recommendations, resolved unknowns)
+               rule + AI conflict detection
+               stop when: nothing critical remains | round cap | user says "generate brief now"
+      -> ArchitectureBriefGenerator (from current requirements only) -> user edits / resolves conflicts / confirms
+      -> project: DISCOVERY -> REQUIREMENTS_CONFIRMED
+```
+
+* **Unknowns are the spine.** Every question must reference an open unknown; the generator may add gaps the interpreter missed (`newUnknowns`, remapped server-side to stable `U` ids). Unresolved unknowns are never invented away: they appear in the brief as open questions, and critical ones must be explicitly accepted to confirm.
+* **Origins are enforced, not requested.** `USER_STATED` needs a verbatim quote from the pitch; `USER_ANSWERED` may only cite questions actually answered; `AI_RECOMMENDED` may only cite "Recommend for me" answers; an AI-origin update cannot overwrite a user-owned requirement. Violations are rejected by semantic validation (one repair attempt, then `AI_OUTPUT_INVALID`).
+* **Requirements are append-only.** `Requirement` + `RequirementVersion` (+ `RequirementSource`). A manual edit creates a version with `source=USER_EDITED`, the previous wording, who and when; the requirement's origin becomes `USER_STATED` and its tags are cleared.
+* **Brief staleness.** Each brief version stores a fingerprint of the active requirement versions it was built from. Any edit, answer or conflict resolution makes it stale; only the latest, non-stale brief can be confirmed.
+* **Conflicts.** Deterministic rules over a controlled tag vocabulary (`packages/schemas/src/conflicts.ts`, add a rule to extend) always run; an AI detector is best-effort. Conflicts are deduplicated by fingerprint, shown to the user, and block confirmation until resolved (keep one, or dismiss with a reason).
+* **Traceability for Phase 3.** `ArchitectureDriver` + `ArchitectureDriverRequirement` persist Requirement -> Driver. Phase 3 adds Decision -> Technology.
+* **State machine.** `packages/domain/src/status.ts` lists every allowed project transition; writes use compare-and-set so concurrent requests cannot both win. Architecture generation is only allowed from `REQUIREMENTS_CONFIRMED`.
+* **AI inputs/outputs** are versioned prompts (`CLARIFICATION_QUESTION_GENERATOR`, `REQUIREMENT_EXTRACTOR`, `CONTRADICTION_DETECTOR`, `ARCHITECTURE_BRIEF_GENERATOR`, all v1). Round, requirement-version and brief-version rows keep prompt id/version, provider, model, token usage and whether a repair was needed.
+* **Discovery asks about needs, never tools.** A validator rejects questions that name technologies (except cloud-vs-on-prem, integrations and team skills).
+
 ## Security
 
 Server-side authorization on every project operation; workspace ids from the browser are verified against memberships;
@@ -67,6 +89,10 @@ In production the dev provider refuses to start unless `ALLOW_DEV_AUTH=true`.
 * **Rate limiting** is in-process (single instance). The `RateLimiter` interface is ready for a shared store.
 * **Interpretation runs inside the request** (typically a few seconds). The worker is intentionally empty; pg-boss arrives with Phase 3 generation.
 * **Migrations** were written by hand to Prisma's conventions because Prisma's engine could not be downloaded where this was built; run `prisma migrate dev` once locally and confirm it reports no drift.
-* **Playwright** specs exist but were not executed where this was built (no browser download available). They run in CI.
+* **Playwright** specs exist but were not executed where this was built (no browser download available). They run in CI. The `test:ui` suite (jsdom + real server + real Postgres) covers the same journeys and did run.
+* **Live Claude quality is unverified.** The mock provider only proves plumbing; run `npm run eval:discovery` with an API key and read the questions.
+* AI conflict detection is best-effort; only the deterministic rules are guaranteed to run. Rules key off tags the extractor attaches, so a contradiction between two untagged requirements depends on the AI detector.
+* A dismissed or resolved conflict is not re-raised if one of its requirements is later edited.
+* `actorId`-style columns (`answeredById`, `createdById`, `resolvedById`, `confirmedById`) are plain UUIDs without foreign keys to `User`.
 * The mock provider is heuristic and for development/tests only. Real interpretation quality has not been evaluated against Claude yet.
 * No streaming UI, no Organizations UI, no edit/delete UI for projects (the delete endpoint exists).

@@ -24,3 +24,9 @@
 ## Rules of the road
 No Prisma outside `packages/db`. No business logic in route handlers or components. No vendor SDK outside `packages/ai/src/providers`.
 Never persist unvalidated model output. Never log secrets or (outside debug) prompts.
+
+## Phase 2 notes
+* `npm run test:ui` needs a fresh `npm run build`; it starts the production server on port 3101 and **resets `TEST_DATABASE_URL`**.
+* The hand-written migrations are checked against `schema.prisma` by `test/integration/schema-drift.test.ts`. Run `prisma migrate dev` once with network access and confirm it reports no drift.
+* Simulate AI behaviour with `makeApp({ script: [...] })` (see `test/integration/discovery.test.ts`): scripted strings are consumed one per model call, in order. Build "otherwise valid, one defect" responses so a test fails for the reason in its name.
+* Quality of questions can only be judged by reading them: `npm run eval:discovery`. Schema validity is not quality.

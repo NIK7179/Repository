@@ -2,8 +2,13 @@
   "name": "pitch2plan",
   "private": true,
   "version": "0.1.0",
-  "workspaces": ["apps/*", "packages/*"],
-  "engines": { "node": ">=20" },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "npm run dev -w @pitch2plan/web",
     "build": "npm run db:generate && npm run build -w @pitch2plan/web",
@@ -18,13 +23,19 @@
     "db:migrate": "npm run migrate -w @pitch2plan/db",
     "db:migrate:sql": "node scripts/apply-sql-migrations.mjs",
     "db:seed": "tsx --env-file=.env scripts/seed.mts",
-    "postinstall": "npm run db:generate"
+    "postinstall": "npm run db:generate",
+    "test:ui": "vitest run --config vitest.ui.config.ts",
+    "eval:discovery": "tsx --env-file=.env scripts/eval-discovery.mts"
   },
   "devDependencies": {
     "@eslint/js": "^9.30.0",
     "@playwright/test": "^1.55.0",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
     "@types/node": "^22.10.0",
     "eslint": "^9.30.0",
+    "jsdom": "^26.1.0",
     "tsx": "^4.20.0",
     "typescript": "^5.8.0",
     "typescript-eslint": "^8.35.0",

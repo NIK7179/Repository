@@ -12,6 +12,9 @@ const schema = z.object({
   ANTHROPIC_MODEL: z.string().default('claude-sonnet-5-5'),
   LLM_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),
   LLM_MAX_RETRIES: z.coerce.number().int().min(0).max(5).default(2),
+  /** Standard discovery rounds before the brief is offered automatically (the user can always ask for more). */
+  DISCOVERY_MAX_ROUNDS: z.coerce.number().int().min(1).max(10).default(3),
+  DISCOVERY_MAX_QUESTIONS: z.coerce.number().int().min(1).max(10).default(6),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   /** Development only. Prompts may contain sensitive user data. */
   DEBUG_LOG_PROMPTS: z.enum(['true', 'false']).default('false'),

@@ -3,3 +3,8 @@ export * from './logger';
 export * from './ports';
 export * from './authorization';
 export * from './application';
+export * from './status';
+export * from './seed';
+export * from './discovery';
+export * from './brief';
+export { DEFAULT_DISCOVERY_CONFIG, type DiscoveryConfig } from './shared';

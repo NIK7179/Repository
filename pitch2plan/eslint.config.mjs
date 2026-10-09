@@ -12,5 +12,5 @@ export default tseslint.config(
       eqeqeq: ['error', 'always'],
     },
   },
-  { files: ['**/*.mjs'], languageOptions: { globals: { console: 'readonly', process: 'readonly' } } },
+  { files: ['**/*.mjs'], languageOptions: { globals: { console: 'readonly', process: 'readonly', fetch: 'readonly', setTimeout: 'readonly', URL: 'readonly' } } },
 );

@@ -1,3 +1,4 @@
+import type { BriefView, DiscoveryState } from '@pitch2plan/domain';
 import type { ApiErrorBody, ApiSuccessBody, IdeaInterpretation, ProjectStatus, TechnicalLevel } from '@pitch2plan/schemas';
 
 export interface ProjectDto { id: string; workspaceId: string; name: string; description: string | null; status: ProjectStatus; createdAt: string; updatedAt: string }
@@ -39,3 +40,12 @@ export function timeAgo(iso: string, now = Date.now()): string {
   }
   return '';
 }
+
+/** Server records as they look after JSON serialisation (Dates become ISO strings). */
+export type Json<T> = T extends Date ? string : T extends readonly (infer U)[] ? Json<U>[] : T extends object ? { [K in keyof T]: Json<T[K]> } : T;
+export type DiscoveryStateDto = Json<DiscoveryState>;
+export type BriefViewDto = Json<BriefView>;
+export type RequirementDto = DiscoveryStateDto['requirements'][number];
+export type RoundDto = DiscoveryStateDto['rounds'][number];
+export type QuestionDto = RoundDto['questions'][number];
+export type ConflictDto = DiscoveryStateDto['conflicts'][number];

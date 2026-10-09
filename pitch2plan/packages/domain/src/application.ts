@@ -4,20 +4,29 @@ import type {
 import { canWrite, requireProjectAccess } from './authorization';
 import { DomainError } from './errors';
 import type { Logger } from './logger';
-import type { ExternalIdentity, IdeaInterpreterPort, Repositories } from './ports';
+import type { DiscoveryAiPort, ExternalIdentity, IdeaInterpreterPort, Repositories } from './ports';
+import { createBriefService } from './brief';
+import { createDiscoveryService, type RequestContext } from './discovery';
+import { DEFAULT_DISCOVERY_CONFIG, type DiscoveryConfig } from './shared';
 
-export interface RequestContext { userId: string; requestId: string }
-export interface ApplicationDeps { repos: Repositories; interpreter: IdeaInterpreterPort; logger: Logger }
+export type { RequestContext };
+export interface ApplicationDeps { repos: Repositories; interpreter: IdeaInterpreterPort; discoveryAi: DiscoveryAiPort; logger: Logger; discoveryConfig?: Partial<DiscoveryConfig> }
 
 function isAiError(e: unknown): e is { code: string; message: string; details?: unknown } {
   return !!e && typeof e === 'object' && typeof (e as { code?: unknown }).code === 'string' && (e as { code: string }).code.startsWith('AI_');
 }
 
-export function createApplication({ repos, interpreter, logger }: ApplicationDeps) {
+export function createApplication({ repos, interpreter, discoveryAi, logger, discoveryConfig }: ApplicationDeps) {
+  const config: DiscoveryConfig = { ...DEFAULT_DISCOVERY_CONFIG, ...discoveryConfig };
+  const discovery = createDiscoveryService({ repos, ai: discoveryAi, logger, config });
+  const briefs = createBriefService({ repos, ai: discoveryAi, logger, discovery });
   const audit = (ctx: RequestContext, workspaceId: string, action: string, extra: { projectId?: string; entityType?: string; entityId?: string; metadata?: Record<string, unknown> } = {}) =>
     repos.audit.record({ workspaceId, actorId: ctx.userId, action, requestId: ctx.requestId, ...extra });
 
   return {
+    discovery,
+    briefs,
+    config,
     users: {
       provision: (identity: ExternalIdentity) => repos.users.provision(identity),
       findById: (id: string) => repos.users.findById(id),

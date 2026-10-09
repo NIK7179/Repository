@@ -1,3 +1,4 @@
+import { mockDiscoveryFor } from './mock-discovery';
 import { AIError, type LLMProvider, type LLMRequest, type LLMResult, type LLMStreamChunk } from '../types';
 
 export type MockScriptItem = string | Error;
@@ -28,7 +29,9 @@ export class MockLLMProvider implements LLMProvider {
       if (item instanceof Error) throw item;
       text = item;
     } else {
-      text = JSON.stringify(heuristicInterpretation(extractPitch(req)));
+      const promptId = /PROMPT_ID: ([A-Z_]+?)_V\d+/.exec(req.system)?.[1];
+      const discovery = promptId ? mockDiscoveryFor(promptId, req.messages[0]?.content ?? '') : undefined;
+      text = JSON.stringify(discovery ?? heuristicInterpretation(extractPitch(req)));
     }
     return {
       text, provider: this.name, model: req.model ?? this.opts.model ?? 'mock-1',

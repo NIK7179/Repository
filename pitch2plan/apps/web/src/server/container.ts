@@ -1,4 +1,4 @@
-import { AnthropicLLMProvider, IdeaInterpreter, LLMGateway, MockLLMProvider, type LLMProvider } from '@pitch2plan/ai';
+import { AnthropicLLMProvider, IdeaInterpreter, LLMGateway, MockLLMProvider, createDiscoveryAi, type LLMProvider } from '@pitch2plan/ai';
 import { createPrismaClient, createRepositories, type PrismaClient } from '@pitch2plan/db';
 import { createApplication, type Application, type Repositories } from '@pitch2plan/domain';
 import type { AuthProvider } from './auth/provider';
@@ -29,6 +29,9 @@ export function getContainer(): Container {
     debugLogPrompts: env.DEBUG_LOG_PROMPTS === 'true' && env.NODE_ENV !== 'production',
     onUsage: (e) => repos.usage.record(e),
   });
-  const app = createApplication({ repos, interpreter: new IdeaInterpreter(gateway), logger });
+  const app = createApplication({
+    repos, interpreter: new IdeaInterpreter(gateway), discoveryAi: createDiscoveryAi(gateway), logger,
+    discoveryConfig: { maxDiscoveryRounds: env.DISCOVERY_MAX_ROUNDS, maxQuestionsPerRound: env.DISCOVERY_MAX_QUESTIONS },
+  });
   return (g.__p2p = { prisma, repos, app, auth: new DevAuthProvider(env.AUTH_SECRET), rateLimiter: new MemoryRateLimiter(), authSecret: env.AUTH_SECRET });
 }

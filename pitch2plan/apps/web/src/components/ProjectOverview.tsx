@@ -43,7 +43,9 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
           <div className="flex items-center gap-3"><h1 className="text-xl font-semibold" data-testid="project-name">{project.name}</h1><StatusBadge status={project.status} /></div>
           <p className="mt-1 text-sm text-muted">Updated {timeAgo(project.updatedAt)}</p>
         </div>
-        <Link href={`/projects/${project.id}/discovery`}><Button>Continue to Discovery</Button></Link>
+        {project.status === 'IDEA' || project.status === 'DISCOVERY'
+          ? <Link href={`/projects/${project.id}/discovery`}><Button>Continue to Discovery</Button></Link>
+          : <Link href={`/projects/${project.id}/brief`}><Button>View Architecture Brief</Button></Link>}
       </div>
 
       <section className="rounded-lg border border-border bg-panel p-5">

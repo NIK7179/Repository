@@ -6,3 +6,7 @@ export { AnthropicLLMProvider, normalizeAnthropicError } from './providers/anthr
 export { IDEA_INTERPRETER_V1 } from './prompts/idea-interpreter';
 export { IdeaInterpreter, type IdeaInterpreterInput, type IdeaInterpreterOutput } from './capabilities/idea-interpreter';
 export type * from './capabilities/future';
+export * from './capabilities/discovery';
+export * from './prompts/discovery';
+export { dataBlock, parseDataBlock } from './prompts/util';
+export * from './providers/mock-discovery';
