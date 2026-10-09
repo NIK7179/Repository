@@ -1,0 +1,25 @@
+{
+  "name": "@pitch2plan/db",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "generate": "prisma generate",
+    "migrate": "prisma migrate deploy",
+    "migrate:dev": "prisma migrate dev"
+  },
+  "dependencies": {
+    "@pitch2plan/domain": "*",
+    "@pitch2plan/schemas": "*",
+    "@prisma/adapter-pg": "6.19.3",
+    "@prisma/client": "6.19.3",
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "prisma": "6.19.3",
+    "@types/pg": "^8.11.0"
+  },
+  "type": "module"
+}

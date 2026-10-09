@@ -1,0 +1,201 @@
+generator client {
+  provider               = "prisma-client"
+  output                 = "../src/generated"
+  engineType             = "client"
+  runtime                = "nodejs"
+  generatedFileExtension = "ts"
+  importFileExtension    = ""
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+enum ProjectStatus {
+  IDEA
+  DISCOVERY
+  REQUIREMENTS_CONFIRMED
+  ARCHITECTURE_GENERATING
+  ARCHITECTURE_READY
+  IMPLEMENTING
+  ARCHIVED
+}
+
+enum TechnicalLevel {
+  BEGINNER
+  DEVELOPER
+  ARCHITECT
+  FOUNDER
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+model User {
+  id              String            @id @default(uuid()) @db.Uuid
+  externalId      String            @unique
+  email           String            @unique
+  name            String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  memberships     WorkspaceMember[]
+  projectsCreated Project[]
+  pitches         IdeaPitch[]
+}
+
+model Workspace {
+  id             String            @id @default(uuid()) @db.Uuid
+  name           String
+  isPersonal     Boolean           @default(false)
+  /// Reserved so Organizations can be introduced later without a disruptive migration.
+  organizationId String?           @db.Uuid
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  members        WorkspaceMember[]
+  projects       Project[]
+  usageEvents    UsageEvent[]
+  auditLogs      AuditLog[]
+
+  @@index([organizationId])
+}
+
+model WorkspaceMember {
+  id          String        @id @default(uuid()) @db.Uuid
+  workspaceId String        @db.Uuid
+  userId      String        @db.Uuid
+  role        WorkspaceRole
+  createdAt   DateTime      @default(now())
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+}
+
+model Project {
+  id              String               @id @default(uuid()) @db.Uuid
+  workspaceId     String               @db.Uuid
+  createdById     String               @db.Uuid
+  name            String
+  description     String?
+  status          ProjectStatus        @default(IDEA)
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  deletedAt       DateTime?
+  workspace       Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  createdBy       User                 @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  pitches         IdeaPitch[]
+  interpretations IdeaInterpretation[]
+  conversations   Conversation[]
+
+  @@index([workspaceId, deletedAt, updatedAt])
+  @@index([createdById])
+}
+
+/// Append-only. The user's original words are never overwritten.
+model IdeaPitch {
+  id              String               @id @default(uuid()) @db.Uuid
+  projectId       String               @db.Uuid
+  authorId        String               @db.Uuid
+  version         Int
+  content         String
+  technicalLevel  TechnicalLevel?
+  createdAt       DateTime             @default(now())
+  project         Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  author          User                 @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  interpretations IdeaInterpretation[]
+
+  @@unique([projectId, version])
+  @@index([authorId])
+}
+
+/// AI interpretation, stored separately from the pitch it was derived from.
+model IdeaInterpretation {
+  id            String    @id @default(uuid()) @db.Uuid
+  projectId     String    @db.Uuid
+  pitchId       String    @db.Uuid
+  promptId      String
+  promptVersion Int
+  provider      String
+  model         String
+  output        Json
+  createdAt     DateTime  @default(now())
+  project       Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  pitch         IdeaPitch @relation(fields: [pitchId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+  @@index([pitchId])
+}
+
+model Conversation {
+  id        String    @id @default(uuid()) @db.Uuid
+  projectId String    @db.Uuid
+  title     String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  messages  Message[]
+
+  @@index([projectId])
+}
+
+model Message {
+  id             String       @id @default(uuid()) @db.Uuid
+  conversationId String       @db.Uuid
+  role           MessageRole
+  content        String
+  createdAt      DateTime     @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+}
+
+model UsageEvent {
+  id            String    @id @default(uuid()) @db.Uuid
+  workspaceId   String    @db.Uuid
+  projectId     String?   @db.Uuid
+  userId        String?   @db.Uuid
+  capability    String
+  provider      String
+  model         String
+  promptId      String?
+  promptVersion Int?
+  inputTokens   Int?
+  outputTokens  Int?
+  latencyMs     Int
+  success       Boolean
+  errorCode     String?
+  createdAt     DateTime  @default(now())
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@index([projectId])
+}
+
+model AuditLog {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @db.Uuid
+  projectId   String?   @db.Uuid
+  actorId     String?   @db.Uuid
+  action      String
+  entityType  String?
+  entityId    String?
+  metadata    Json?
+  requestId   String?
+  createdAt   DateTime  @default(now())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@index([projectId])
+}
