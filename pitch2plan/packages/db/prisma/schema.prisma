@@ -104,6 +104,8 @@ model Project {
   conflicts       DiscoveryConflict[]
   brief           ArchitectureBrief?
   drivers         ArchitectureDriver[]
+  architecture    Architecture?
+  generationRuns  ArchitectureGenerationRun[]
 
   @@index([workspaceId, deletedAt, updatedAt])
   @@index([createdById])
@@ -349,6 +351,7 @@ model Requirement {
   project        Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
   versions       RequirementVersion[]
   drivers        ArchitectureDriverRequirement[]
+  decisionLinks  DecisionRequirementLink[]
 
   @@unique([projectId, key])
   @@index([projectId, status])
@@ -455,6 +458,7 @@ model ArchitectureDriver {
   project        Project                  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   briefVersion   ArchitectureBriefVersion @relation(fields: [briefVersionId], references: [id], onDelete: Cascade)
   requirements   ArchitectureDriverRequirement[]
+  decisionLinks  DecisionDriverLink[]
 
   @@unique([briefVersionId, key])
   @@index([projectId])
@@ -483,4 +487,227 @@ model AnalyticsEvent {
 
   @@index([workspaceId, createdAt])
   @@index([projectId, name])
+}
+
+// ---------------------------------------------------------------- Phase 3: architecture
+
+enum ArchitectureVersionStatus {
+  DRAFT
+  VALIDATING
+  CRITIQUING
+  READY
+  FAILED
+  SUPERSEDED
+}
+
+enum GenerationRunStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+enum DecisionStatus {
+  PROPOSED
+  ACCEPTED
+  DEPRECATED
+  SUPERSEDED
+}
+
+model Architecture {
+  id               String                @id @default(uuid()) @db.Uuid
+  projectId        String                @unique @db.Uuid
+  currentVersionId String?               @db.Uuid
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  project          Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  versions         ArchitectureVersion[]
+}
+
+/// Immutable once READY (enforced by a database trigger as well as by the repositories).
+model ArchitectureVersion {
+  id                  String                    @id @default(uuid()) @db.Uuid
+  architectureId      String                    @db.Uuid
+  versionNumber       Int
+  status              ArchitectureVersionStatus @default(DRAFT)
+  /// One version per generation run: the unique constraint is what makes worker retries safe.
+  generationRunId     String                    @unique @db.Uuid
+  briefVersionId      String                    @db.Uuid
+  summary             String
+  assumptions         Json
+  unresolvedQuestions Json
+  risks               Json
+  ai                  Json
+  createdAt           DateTime                  @default(now())
+  finalizedAt         DateTime?
+  architecture        Architecture              @relation(fields: [architectureId], references: [id], onDelete: Cascade)
+  run                 ArchitectureGenerationRun @relation(fields: [generationRunId], references: [id], onDelete: Cascade)
+  nodes               ArchitectureNode[]
+  edges               ArchitectureEdge[]
+  decisions           ArchitectureDecision[]
+  issues              ArchitectureGenerationIssue[]
+
+  @@unique([architectureId, versionNumber])
+}
+
+model ArchitectureNode {
+  id                String               @id @default(uuid()) @db.Uuid
+  versionId         String               @db.Uuid
+  /// Conceptual identity across versions. Never a database id.
+  stableKey         String
+  name              String
+  technology        String
+  technologySlug    String
+  category          String
+  purpose           String
+  description       String
+  criticality       String
+  managedService    Boolean
+  provider          String?
+  deploymentModel   String
+  configuration     Json
+  risks             Json
+  alternatives      Json
+  status            String               @default("ACTIVE")
+  /// Lineage: this component replaces the one with this stableKey in the previous version.
+  replacesStableKey String?
+  version           ArchitectureVersion  @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  decisionLinks     NodeDecisionLink[]
+
+  @@unique([versionId, stableKey])
+}
+
+model ArchitectureEdge {
+  id               String              @id @default(uuid()) @db.Uuid
+  versionId        String              @db.Uuid
+  edgeKey          String
+  sourceStableKey  String
+  targetStableKey  String
+  label            String
+  protocol         String
+  communicationType String
+  dataDescription  String
+  synchronous      Boolean
+  encrypted        Boolean?
+  criticality      String
+  version          ArchitectureVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  decisionLinks    EdgeDecisionLink[]
+
+  @@unique([versionId, edgeKey])
+}
+
+model ArchitectureDecision {
+  id               String                   @id @default(uuid()) @db.Uuid
+  versionId        String                   @db.Uuid
+  /// adr-001 style key, stable within a version.
+  key              String
+  title            String
+  problem          String
+  decision         String
+  rationale        String
+  status           DecisionStatus
+  tradeoffs        Json
+  risks            Json
+  alternatives     Json
+  consequences     Json
+  confidence       Float
+  createdAt        DateTime                 @default(now())
+  version          ArchitectureVersion      @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  driverLinks      DecisionDriverLink[]
+  requirementLinks DecisionRequirementLink[]
+  nodeLinks        NodeDecisionLink[]
+  edgeLinks        EdgeDecisionLink[]
+
+  @@unique([versionId, key])
+}
+
+model DecisionDriverLink {
+  decisionId String               @db.Uuid
+  driverId   String               @db.Uuid
+  decision   ArchitectureDecision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  driver     ArchitectureDriver   @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@id([decisionId, driverId])
+  @@index([driverId])
+}
+
+model DecisionRequirementLink {
+  decisionId    String               @db.Uuid
+  requirementId String               @db.Uuid
+  decision      ArchitectureDecision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  requirement   Requirement          @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+
+  @@id([decisionId, requirementId])
+  @@index([requirementId])
+}
+
+model NodeDecisionLink {
+  decisionId String               @db.Uuid
+  nodeId     String               @db.Uuid
+  decision   ArchitectureDecision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  node       ArchitectureNode     @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+
+  @@id([decisionId, nodeId])
+  @@index([nodeId])
+}
+
+model EdgeDecisionLink {
+  decisionId String               @db.Uuid
+  edgeId     String               @db.Uuid
+  decision   ArchitectureDecision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  edge       ArchitectureEdge     @relation(fields: [edgeId], references: [id], onDelete: Cascade)
+
+  @@id([decisionId, edgeId])
+  @@index([edgeId])
+}
+
+model ArchitectureGenerationRun {
+  id             String              @id @default(uuid()) @db.Uuid
+  projectId      String              @db.Uuid
+  briefVersionId String              @db.Uuid
+  status         GenerationRunStatus @default(QUEUED)
+  /// What the worker is doing right now (a real stage, not a fake percentage).
+  currentStage   String              @default("QUEUED")
+  attempt        Int                 @default(0)
+  repairCount    Int                 @default(0)
+  /// Safe, user-presentable failure information. Raw provider errors are never stored here.
+  failureCode    String?
+  failureMessage String?
+  jobId          String?             @unique
+  requestedById  String              @db.Uuid
+  ai             Json?
+  createdAt      DateTime            @default(now())
+  startedAt      DateTime?
+  heartbeatAt    DateTime?
+  finishedAt     DateTime?
+  project        Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  version        ArchitectureVersion?
+  issues         ArchitectureGenerationIssue[]
+
+  @@index([projectId, createdAt])
+  @@index([status, heartbeatAt])
+}
+
+model ArchitectureGenerationIssue {
+  id                     String                    @id @default(uuid()) @db.Uuid
+  runId                  String                    @db.Uuid
+  versionId              String?                   @db.Uuid
+  /// PLAN | AFTER_REPAIR_n | FINAL
+  stage                  String
+  /// STRUCTURAL | SEMANTIC | CRITIC
+  source                 String
+  severity               String
+  category               String
+  code                   String
+  description            String
+  affectedNodeStableKeys Json
+  affectedDecisionKeys   Json
+  relatedRequirementCodes Json
+  recommendation         String
+  createdAt              DateTime                  @default(now())
+  run                    ArchitectureGenerationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  version                ArchitectureVersion?      @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+  @@index([versionId])
 }

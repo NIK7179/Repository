@@ -10,3 +10,6 @@ export * from './capabilities/discovery';
 export * from './prompts/discovery';
 export { dataBlock, parseDataBlock } from './prompts/util';
 export * from './providers/mock-discovery';
+export * from './capabilities/architecture';
+export * from './prompts/architecture';
+export * from './providers/mock-architecture';

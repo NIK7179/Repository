@@ -19,6 +19,7 @@ export function makeSession() {
     return res;
   };
   return {
+    cookie: () => cookie,
     install() { globalThis.fetch = f as typeof fetch; },
     restore() { globalThis.fetch = real; },
     async api<T>(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST'): Promise<T> {
@@ -35,4 +36,20 @@ export function makeSession() {
       return project.id;
     },
   };
+}
+
+type DiscoveryState = { rounds: Array<{ id: string; status: string; questions: Array<{ id: string; answerType: string; options: Array<{ id: string }> }> }> };
+/** Takes a project through the real discovery flow over HTTP until its requirements are confirmed. */
+export async function confirmedViaApi(session: ReturnType<typeof makeSession>, label: string, pitch = PITCH) {
+  const id = await session.projectReady(label, pitch);
+  const answers = (s: DiscoveryState) => { const r = s.rounds.find((x) => x.status === 'OPEN')!; return { r, answers: r.questions.map((q) => ({ questionId: q.id, choice: q.answerType === 'FREE_TEXT' ? { kind: 'FREE_TEXT', text: 'No preference' } : { kind: 'OPTIONS', optionIds: [q.options[0]!.id] } })) }; };
+  let { state } = await session.api<{ state: DiscoveryState }>(`/api/projects/${id}/discovery/start`, {});
+  for (let i = 0; i < 2; i++) {
+    const a = answers(state);
+    await session.api(`/api/projects/${id}/discovery/rounds/${a.r.id}/answers`, { answers: a.answers });
+    ({ state } = await session.api<{ state: DiscoveryState }>(`/api/projects/${id}/discovery/next`, {}));
+  }
+  const { brief } = await session.api<{ brief: { version: { id: string } } }>(`/api/projects/${id}/brief/generate`, {});
+  await session.api(`/api/projects/${id}/brief/confirm`, { briefVersionId: brief.version.id, acceptedUnknownIds: [] });
+  return id;
 }

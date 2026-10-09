@@ -1,4 +1,4 @@
-# Architecture (Phase 2)
+# Architecture (Phase 3)
 
 Pitch2Plan is a **modular monolith**: one Next.js deployable, plus a reserved worker. Boundaries are enforced by
 package dependencies so modules can be extracted later if scale demands it (see ADR-001).
@@ -70,6 +70,30 @@ Pitch -> IdeaInterpreter -> [start] seed requirements + unknowns (U1..Un)
 * **AI inputs/outputs** are versioned prompts (`CLARIFICATION_QUESTION_GENERATOR`, `REQUIREMENT_EXTRACTOR`, `CONTRADICTION_DETECTOR`, `ARCHITECTURE_BRIEF_GENERATOR`, all v1). Round, requirement-version and brief-version rows keep prompt id/version, provider, model, token usage and whether a repair was needed.
 * **Discovery asks about needs, never tools.** A validator rejects questions that name technologies (except cloud-vs-on-prem, integrations and team skills).
 
+## Architecture generation (Phase 3)
+
+```
+POST /api/projects/:id/architecture/generate
+   validate (write access, REQUIREMENTS_CONFIRMED, confirmed brief, drivers exist)
+   one transaction: CAS REQUIREMENTS_CONFIRMED -> ARCHITECTURE_GENERATING, create ArchitectureGenerationRun
+   enqueue pg-boss job (singletonKey = run id)  -> 202 { jobId, generationRunId }
+worker (apps/worker, or inline in dev):  runGeneration(runId)
+   claim run (CAS)  ->  load confirmed brief, requirements, drivers (codes REQ-001 / DRV-001)
+   Planner -> structural + semantic validation -> [Critic] -> [Repairer -> validate -> Critic]* (bounded)
+   finalize in ONE transaction: run SUCCEEDED, version + graph + decisions + links + issues, project -> ARCHITECTURE_READY
+   on any failure: run FAILED (safe message + code), project -> REQUIREMENTS_CONFIRMED
+```
+
+* **The architecture is domain data.** `Architecture`, `ArchitectureVersion`, `ArchitectureNode`, `ArchitectureEdge`, `ArchitectureDecision`, the link tables (`DecisionDriverLink`, `DecisionRequirementLink`, `NodeDecisionLink`, `EdgeDecisionLink`), `ArchitectureGenerationRun` and `ArchitectureGenerationIssue`. React Flow lives only in `apps/web` (`lib/canvas.ts` converts a persisted version to a render model; positions are computed with dagre and never stored). Nothing in `domain`, `db`, `schemas` or `ai` imports it.
+* **Immutability is enforced in the database.** Triggers reject any insert/update on the graph of a READY or SUPERSEDED version, and any status change other than READY -> SUPERSEDED. Changes require a new version.
+* **Stable identity.** A component is identified across versions by `stableKey` (never by database id). `replacesStableKey` records replacement lineage; `nodeHistory()` follows a key across versions and derives "replaced by".
+* **Traceability is queryable.** Requirement -> driver -> decision -> component are real rows. "Why is this here?" and the reverse "which components did this requirement shape?" are answered with no model call.
+* **Planner / Critic / Repairer are separate capabilities** (`ARCHITECTURE_PLANNER`, `ARCHITECTURE_CRITIC`, `ARCHITECTURE_REPAIRER`, all v1). The planner prompt states the principle: the simplest architecture that satisfies the confirmed requirements; no technology without a driver. The repairer returns a *patch* applied deterministically (`applyRepairPatch`); fields it does not name are never touched. After the repair cap, a remaining CRITICAL issue fails the run; remaining HIGH issues are kept and shown.
+* **Validation does not depend on the model.** `validateArchitectureStructure` (references, duplicates, self-edges, orphans, provider consistency, decision links) and `evaluateSemanticRules` (single points of failure, unencrypted sensitive data, lock-in vs portability, complexity vs budget) are plain code. The rules are deliberately incomplete.
+* **Idempotency in layers.** pg-boss singletonKey (queue policy `short`) -> `claimRun` CAS (QUEUED, or RUNNING with a stale heartbeat) -> `finalize` CAS on the run -> unique `generationRunId` on the version. A duplicate or retried job cannot create a second version.
+* **No stuck projects.** Failures return the project to REQUIREMENTS_CONFIRMED. A run whose worker vanished is failed (`GENERATION_TIMED_OUT`) by a sweeper on worker start and every minute, and lazily when the project, job or `generate` is read.
+* **Failure UX is safe.** Only fixed, user-presentable messages and a code are stored on the run; provider errors, secrets and stack traces never reach it.
+
 ## Security
 
 Server-side authorization on every project operation; workspace ids from the browser are verified against memberships;
@@ -90,7 +114,12 @@ In production the dev provider refuses to start unless `ALLOW_DEV_AUTH=true`.
 * **Interpretation runs inside the request** (typically a few seconds). The worker is intentionally empty; pg-boss arrives with Phase 3 generation.
 * **Migrations** were written by hand to Prisma's conventions because Prisma's engine could not be downloaded where this was built; run `prisma migrate dev` once locally and confirm it reports no drift.
 * **Playwright** specs exist but were not executed where this was built (no browser download available). They run in CI. The `test:ui` suite (jsdom + real server + real Postgres) covers the same journeys and did run.
-* **Live Claude quality is unverified.** The mock provider only proves plumbing; run `npm run eval:discovery` with an API key and read the questions.
+* **Live Claude quality is unverified for discovery AND architecture.** Run `npm run eval:architecture`.
+* **Only READY and SUPERSEDED versions are used.** DRAFT exists transiently inside the finalize transaction; VALIDATING/CRITIQUING/FAILED are in the enum for later use, and failures are recorded on the run.
+* **A second version can only be created at the repository level** (Phase 5 adds change proposals); the project state machine does not allow regeneration from ARCHITECTURE_READY.
+* **Technology icons are monogram badges**, not third-party logos; unknown technologies fall back to a generic category icon.
+* **Deleting rows is not blocked by the immutability triggers** (needed for cascading deletes); the application has no delete path for versions.
+ The mock provider only proves plumbing; run `npm run eval:discovery` with an API key and read the questions.
 * AI conflict detection is best-effort; only the deterministic rules are guaranteed to run. Rules key off tags the extractor attaches, so a contradiction between two untagged requirements depends on the AI detector.
 * A dismissed or resolved conflict is not re-raised if one of its requirements is later edited.
 * `actorId`-style columns (`answeredById`, `createdById`, `resolvedById`, `confirmedById`) are plain UUIDs without foreign keys to `User`.

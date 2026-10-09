@@ -15,6 +15,10 @@ const schema = z.object({
   /** Standard discovery rounds before the brief is offered automatically (the user can always ask for more). */
   DISCOVERY_MAX_ROUNDS: z.coerce.number().int().min(1).max(10).default(3),
   DISCOVERY_MAX_QUESTIONS: z.coerce.number().int().min(1).max(10).default(6),
+  /** inline = the web process also runs the job worker (default outside production); external = run `npm run worker` separately. */
+  WORKER_MODE: z.enum(['inline', 'external']).optional(),
+  ARCH_MAX_REPAIRS: z.coerce.number().int().min(0).max(5).default(2),
+  ARCH_STALE_RUN_MS: z.coerce.number().int().positive().default(600_000),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   /** Development only. Prompts may contain sensitive user data. */
   DEBUG_LOG_PROMPTS: z.enum(['true', 'false']).default('false'),

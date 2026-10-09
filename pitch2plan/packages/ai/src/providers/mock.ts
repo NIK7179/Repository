@@ -1,3 +1,4 @@
+import { mockArchitectureFor } from './mock-architecture';
 import { mockDiscoveryFor } from './mock-discovery';
 import { AIError, type LLMProvider, type LLMRequest, type LLMResult, type LLMStreamChunk } from '../types';
 
@@ -30,7 +31,7 @@ export class MockLLMProvider implements LLMProvider {
       text = item;
     } else {
       const promptId = /PROMPT_ID: ([A-Z_]+?)_V\d+/.exec(req.system)?.[1];
-      const discovery = promptId ? mockDiscoveryFor(promptId, req.messages[0]?.content ?? '') : undefined;
+      const discovery = promptId ? (mockDiscoveryFor(promptId, req.messages[0]?.content ?? '') ?? mockArchitectureFor(promptId, req.messages[0]?.content ?? '')) : undefined;
       text = JSON.stringify(discovery ?? heuristicInterpretation(extractPitch(req)));
     }
     return {

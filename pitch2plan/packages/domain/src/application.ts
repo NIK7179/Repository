@@ -4,28 +4,35 @@ import type {
 import { canWrite, requireProjectAccess } from './authorization';
 import { DomainError } from './errors';
 import type { Logger } from './logger';
-import type { DiscoveryAiPort, ExternalIdentity, IdeaInterpreterPort, Repositories } from './ports';
+import type { ArchitectureAiPort, DiscoveryAiPort, ExternalIdentity, IdeaInterpreterPort, JobQueue, Repositories } from './ports';
+import { createArchitectureService, DEFAULT_ARCHITECTURE_CONFIG, type ArchitectureConfig } from './architecture';
 import { createBriefService } from './brief';
 import { createDiscoveryService, type RequestContext } from './discovery';
 import { DEFAULT_DISCOVERY_CONFIG, type DiscoveryConfig } from './shared';
 
 export type { RequestContext };
-export interface ApplicationDeps { repos: Repositories; interpreter: IdeaInterpreterPort; discoveryAi: DiscoveryAiPort; logger: Logger; discoveryConfig?: Partial<DiscoveryConfig> }
+export interface ApplicationDeps {
+  repos: Repositories; interpreter: IdeaInterpreterPort; discoveryAi: DiscoveryAiPort; architectureAi: ArchitectureAiPort; queue: JobQueue; logger: Logger;
+  discoveryConfig?: Partial<DiscoveryConfig>; architectureConfig?: Partial<ArchitectureConfig>;
+}
 
 function isAiError(e: unknown): e is { code: string; message: string; details?: unknown } {
   return !!e && typeof e === 'object' && typeof (e as { code?: unknown }).code === 'string' && (e as { code: string }).code.startsWith('AI_');
 }
 
-export function createApplication({ repos, interpreter, discoveryAi, logger, discoveryConfig }: ApplicationDeps) {
+export function createApplication({ repos, interpreter, discoveryAi, architectureAi, queue, logger, discoveryConfig, architectureConfig }: ApplicationDeps) {
   const config: DiscoveryConfig = { ...DEFAULT_DISCOVERY_CONFIG, ...discoveryConfig };
   const discovery = createDiscoveryService({ repos, ai: discoveryAi, logger, config });
   const briefs = createBriefService({ repos, ai: discoveryAi, logger, discovery });
   const audit = (ctx: RequestContext, workspaceId: string, action: string, extra: { projectId?: string; entityType?: string; entityId?: string; metadata?: Record<string, unknown> } = {}) =>
     repos.audit.record({ workspaceId, actorId: ctx.userId, action, requestId: ctx.requestId, ...extra });
 
+  const architecture = createArchitectureService({ repos, ai: architectureAi, queue, logger, config: { ...DEFAULT_ARCHITECTURE_CONFIG, ...architectureConfig } });
+
   return {
     discovery,
     briefs,
+    architecture,
     config,
     users: {
       provision: (identity: ExternalIdentity) => repos.users.provision(identity),

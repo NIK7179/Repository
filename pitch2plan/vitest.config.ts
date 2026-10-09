@@ -3,7 +3,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     include: ['packages/**/*.test.ts', 'apps/**/*.test.ts', 'test/**/*.test.ts'],
-    exclude: ['**/node_modules/**', 'e2e/**'],
+    exclude: ['**/node_modules/**', 'e2e/**', 'apps/web/test-ui/**'],
     globalSetup: ['./test/global-setup.mjs'],
     fileParallelism: false, // integration tests share one database
     testTimeout: 20_000,

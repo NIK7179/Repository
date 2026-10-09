@@ -13,6 +13,6 @@ export default defineConfig({
     url: `http://localhost:${PORT}/api/health`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
-    env: { ALLOW_DEV_AUTH: 'true', AI_PROVIDER: 'mock', LOG_LEVEL: 'warn' },
+    env: { ALLOW_DEV_AUTH: 'true', AI_PROVIDER: 'mock', LOG_LEVEL: 'warn', WORKER_MODE: 'inline' },
   },
 });

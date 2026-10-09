@@ -1,4 +1,4 @@
-import { IdeaInterpreter, LLMGateway, MockLLMProvider, createDiscoveryAi } from '@pitch2plan/ai';
+import { IdeaInterpreter, LLMGateway, MockLLMProvider, createArchitectureAi, createDiscoveryAi } from '@pitch2plan/ai';
 import { createPrismaClient, createRepositories } from '@pitch2plan/db';
 import { createApplication, noopLogger } from '@pitch2plan/domain';
 
@@ -10,7 +10,7 @@ if (!url) throw new Error('DATABASE_URL is required');
 const prisma = createPrismaClient(url);
 const repos = createRepositories(prisma);
 const gateway = new LLMGateway({ provider: new MockLLMProvider(), model: 'mock-1', timeoutMs: 10_000, maxRetries: 0, onUsage: (e) => repos.usage.record(e) });
-const app = createApplication({ repos, interpreter: new IdeaInterpreter(gateway), discoveryAi: createDiscoveryAi(gateway), logger: noopLogger });
+const app = createApplication({ repos, interpreter: new IdeaInterpreter(gateway), discoveryAi: createDiscoveryAi(gateway), architectureAi: createArchitectureAi(gateway), queue: { enqueue: async () => null }, logger: noopLogger });
 
 const { user } = await app.users.provision({ externalId: 'dev:demo@pitch2plan.dev', email: 'demo@pitch2plan.dev', name: 'Demo User' });
 const ctx = { userId: user.id, requestId: 'seed' };

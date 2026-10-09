@@ -19,8 +19,8 @@ const csp = [
 const config: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
-  transpilePackages: ['@pitch2plan/ai', '@pitch2plan/db', '@pitch2plan/domain', '@pitch2plan/schemas', '@pitch2plan/ui'],
-  serverExternalPackages: ['pg', '@prisma/client', '@prisma/adapter-pg'],
+  transpilePackages: ['@pitch2plan/ai', '@pitch2plan/db', '@pitch2plan/domain', '@pitch2plan/jobs', '@pitch2plan/runtime', '@pitch2plan/schemas', '@pitch2plan/ui'],
+  serverExternalPackages: ['pg', '@prisma/client', '@prisma/adapter-pg', 'pg-boss'],
   async headers() {
     return [{
       source: '/:path*',

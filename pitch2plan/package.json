@@ -25,7 +25,9 @@
     "db:seed": "tsx --env-file=.env scripts/seed.mts",
     "postinstall": "npm run db:generate",
     "test:ui": "vitest run --config vitest.ui.config.ts",
-    "eval:discovery": "tsx --env-file=.env scripts/eval-discovery.mts"
+    "eval:discovery": "tsx --env-file=.env scripts/eval-discovery.mts",
+    "worker": "npm run start -w @pitch2plan/worker",
+    "eval:architecture": "tsx --env-file=.env scripts/eval-architecture.mts"
   },
   "devDependencies": {
     "@eslint/js": "^9.30.0",

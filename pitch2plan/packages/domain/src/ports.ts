@@ -29,7 +29,7 @@ export interface AuditEventInput {
 }
 
 /** Persistence ports. Implemented by packages/db; the domain never imports Prisma. */
-export interface Repositories extends DiscoveryRepositories {
+export interface Repositories extends DiscoveryRepositories, ArchitectureRepositories {
   users: {
     findById(id: string): Promise<UserRecord | null>;
     /** Idempotent: creates the user, a personal workspace and an OWNER membership on first sight. */
@@ -170,3 +170,82 @@ export interface DiscoveryAiPort {
   detectConflicts(input: DetectorInput): Promise<AiResult<DetectorOutput>>;
   generateBrief(input: BriefInput): Promise<AiResult<ArchitectureBriefContent>>;
 }
+
+// ====================================================================== Phase 3: architecture
+import type {
+  ArchitectureIssue, ArchitecturePlan, CriticOutput, PlanInput, CritiqueInput, RepairInput, RepairPatch, NodeCategory, Priority,
+} from '@pitch2plan/schemas';
+
+export type RunStatus = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED';
+export interface GenerationRunRecord {
+  id: string; projectId: string; briefVersionId: string; status: RunStatus; currentStage: string; attempt: number; repairCount: number;
+  failureCode: string | null; failureMessage: string | null; jobId: string | null; requestedById: string;
+  createdAt: Date; startedAt: Date | null; heartbeatAt: Date | null; finishedAt: Date | null; versionId: string | null;
+}
+export interface IssueRecord extends ArchitectureIssue { id: string; stage: string }
+export interface NodeRecord {
+  id: string; versionId: string; stableKey: string; name: string; technology: string; technologySlug: string; category: NodeCategory; purpose: string; description: string;
+  criticality: Priority; managedService: boolean; provider: string | null; deploymentModel: string; configuration: Array<{ key: string; value: string; note?: string }>;
+  risks: string[]; alternatives: Array<{ technology: string; reasoning: string }>; status: string; replacesStableKey: string | null;
+}
+export interface EdgeRecord {
+  id: string; versionId: string; edgeKey: string; sourceStableKey: string; targetStableKey: string; label: string; protocol: string; communicationType: string;
+  dataDescription: string; synchronous: boolean; encrypted: boolean | null; criticality: Priority;
+}
+export interface DecisionRecord {
+  id: string; versionId: string; key: string; title: string; problem: string; decision: string; rationale: string; status: 'PROPOSED' | 'ACCEPTED' | 'DEPRECATED' | 'SUPERSEDED';
+  tradeoffs: string[]; risks: string[]; alternatives: Array<{ technology: string; reasoning: string }>; consequences: string[]; confidence: number; createdAt: Date;
+  driverIds: string[]; requirementIds: string[]; nodeStableKeys: string[]; edgeKeys: string[];
+}
+export interface ArchitectureVersionSummary {
+  id: string; architectureId: string; projectId: string; versionNumber: number; status: 'DRAFT' | 'VALIDATING' | 'CRITIQUING' | 'READY' | 'FAILED' | 'SUPERSEDED';
+  generationRunId: string; briefVersionId: string; summary: string; createdAt: Date; finalizedAt: Date | null; counts: { nodes: number; edges: number; decisions: number };
+}
+export interface ArchitectureVersionRecord extends ArchitectureVersionSummary {
+  assumptions: string[]; unresolvedQuestions: string[]; risks: Array<{ text: string; severity: Priority; nodeStableKeys: string[] }>; ai: Record<string, unknown>;
+  nodes: NodeRecord[]; edges: EdgeRecord[]; decisions: DecisionRecord[]; issues: IssueRecord[];
+}
+export interface ArchitectureRecord { id: string; projectId: string; currentVersionId: string | null }
+export interface NodeHistoryEntry { versionNumber: number; versionId: string; technology: string; technologySlug: string; replacesStableKey: string | null; replacedByStableKey: string | null }
+
+export interface PersistArchitectureInput {
+  runId: string; projectId: string; briefVersionId: string; plan: ArchitecturePlan;
+  driverIdByCode: Record<string, string>; requirementIdByCode: Record<string, string>;
+  issues: Array<ArchitectureIssue & { stage: string }>; ai: Record<string, unknown>;
+}
+
+export interface ArchitectureRepositories {
+  architecture: {
+    getByProject(projectId: string): Promise<ArchitectureRecord | null>;
+    listVersions(projectId: string): Promise<ArchitectureVersionSummary[]>;
+    getVersion(versionId: string): Promise<ArchitectureVersionRecord | null>;
+    nodeHistory(architectureId: string, stableKey: string): Promise<NodeHistoryEntry[]>;
+    /** One transaction: compare-and-set REQUIREMENTS_CONFIRMED -> ARCHITECTURE_GENERATING, then create the run. Null if the project was not confirmed. */
+    startGeneration(input: { projectId: string; briefVersionId: string; userId: string }): Promise<GenerationRunRecord | null>;
+    attachJob(runId: string, jobId: string): Promise<void>;
+    getRun(id: string): Promise<GenerationRunRecord | null>;
+    getRunByJobId(jobId: string): Promise<GenerationRunRecord | null>;
+    getLatestRun(projectId: string): Promise<GenerationRunRecord | null>;
+    /** Compare-and-set: QUEUED, or RUNNING with a stale heartbeat. Returns null if another worker owns it or it is finished. */
+    claimRun(runId: string, staleBefore: Date): Promise<GenerationRunRecord | null>;
+    touchRun(runId: string, patch: { currentStage?: string; repairCount?: number }): Promise<void>;
+    /** One transaction, idempotent per run: the version, its graph, links, issues, run SUCCEEDED and project -> ARCHITECTURE_READY. */
+    finalize(input: PersistArchitectureInput): Promise<{ versionId: string; versionNumber: number; created: boolean }>;
+    /** One transaction: run -> FAILED and project ARCHITECTURE_GENERATING -> REQUIREMENTS_CONFIRMED. Safe to call repeatedly. */
+    failRun(input: { runId: string; code: string; message: string; issues?: Array<ArchitectureIssue & { stage: string }> }): Promise<{ failed: boolean; projectRecovered: boolean }>;
+    listStaleRuns(before: Date): Promise<GenerationRunRecord[]>;
+  };
+}
+
+export interface ArchitectureAiPort {
+  plan(input: PlanInput): Promise<AiResult<ArchitecturePlan>>;
+  critique(input: CritiqueInput): Promise<AiResult<CriticOutput>>;
+  repair(input: RepairInput): Promise<AiResult<RepairPatch>>;
+}
+
+/** Port implemented by packages/jobs (pg-boss). The domain never imports a queue library. */
+export interface JobQueue {
+  /** Returns the job id, or null if an identical job (same singletonKey) is already queued. */
+  enqueue(name: string, payload: { runId: string }, options: { singletonKey: string }): Promise<string | null>;
+}
+export const ARCHITECTURE_JOB = 'architecture.generate';

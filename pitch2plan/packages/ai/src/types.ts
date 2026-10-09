@@ -7,6 +7,8 @@ export interface LLMRequest {
   /** Set by the gateway from configuration. */
   model?: string;
   signal?: AbortSignal;
+  /** Overrides the gateway's default timeout for this call. Not sent to the provider. */
+  timeoutMs?: number;
 }
 export interface LLMUsage { inputTokens?: number; outputTokens?: number }
 export interface LLMResult { text: string; model: string; provider: string; usage: LLMUsage; stopReason?: string }

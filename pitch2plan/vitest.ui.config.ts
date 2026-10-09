@@ -7,7 +7,7 @@ export default defineConfig({
   resolve: { alias: { '@': fileURLToPath(new URL('./apps/web/src', import.meta.url)) } },
   esbuild: { jsx: 'automatic' },
   test: {
-    include: ['apps/web/test-ui/**/*.test.tsx'],
+    include: ['apps/web/test-ui/**/*.test.{ts,tsx}'],
     environment: 'jsdom',
     globalSetup: ['./apps/web/test-ui/global-setup.mjs'],
     setupFiles: ['./apps/web/test-ui/setup.tsx'],

@@ -1,4 +1,4 @@
-import type { BriefView, DiscoveryState } from '@pitch2plan/domain';
+import type { ArchitectureService, BriefView, DiscoveryState } from '@pitch2plan/domain';
 import type { ApiErrorBody, ApiSuccessBody, IdeaInterpretation, ProjectStatus, TechnicalLevel } from '@pitch2plan/schemas';
 
 export interface ProjectDto { id: string; workspaceId: string; name: string; description: string | null; status: ProjectStatus; createdAt: string; updatedAt: string }
@@ -49,3 +49,8 @@ export type RequirementDto = DiscoveryStateDto['requirements'][number];
 export type RoundDto = DiscoveryStateDto['rounds'][number];
 export type QuestionDto = RoundDto['questions'][number];
 export type ConflictDto = DiscoveryStateDto['conflicts'][number];
+
+export type ArchitectureOverviewDto = Json<Awaited<ReturnType<ArchitectureService['getOverview']>>>;
+export type NodeInspectorDto = Json<Awaited<ReturnType<ArchitectureService['getNode']>>>;
+export type RunDto = NonNullable<ArchitectureOverviewDto['run']>;
+export type DecisionDto = NonNullable<ArchitectureOverviewDto['current']>['decisions'][number];

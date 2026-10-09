@@ -27,14 +27,16 @@ export class LLMGateway {
   get model() { return this.cfg.model; }
 
   async generate(req: Omit<LLMRequest, 'model' | 'signal'>, meta: CallMeta): Promise<LLMResult> {
-    const { maxRetries, timeoutMs, provider, model } = this.cfg;
+    const { maxRetries, provider, model } = this.cfg;
+    const timeoutMs = req.timeoutMs ?? this.cfg.timeoutMs;
     for (let attempt = 0; ; attempt++) {
       const started = Date.now();
       const controller = new AbortController();
       let timedOut = false;
       const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
       try {
-        const result = await provider.generate({ maxTokens: this.cfg.maxTokens, ...req, model, signal: controller.signal });
+        const { timeoutMs: _t, ...providerReq } = req;
+        const result = await provider.generate({ maxTokens: this.cfg.maxTokens, ...providerReq, model, signal: controller.signal });
         const latencyMs = Date.now() - started;
         this.logger.info({
           action: 'llm.generate', capability: meta.capability, promptId: meta.promptId, promptVersion: meta.promptVersion,
@@ -64,7 +66,7 @@ export class LLMGateway {
   }
 
   private normalize(e: unknown, timedOut: boolean): AIError {
-    if (timedOut) return new AIError('AI_TIMEOUT', `The AI provider did not respond within ${this.cfg.timeoutMs}ms.`, true);
+    if (timedOut) return new AIError('AI_TIMEOUT', 'The AI provider did not respond in time.', true);
     if (e instanceof AIError) return e;
     return new AIError('AI_PROVIDER_ERROR', 'Unexpected AI provider failure.', false);
   }

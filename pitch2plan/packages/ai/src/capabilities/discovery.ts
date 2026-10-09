@@ -16,10 +16,10 @@ import type { AiCallContextLike } from './shared';
 type Prompt = PromptDef & { buildUser(input: unknown): string };
 
 /** Shared pipeline for every discovery capability: prompt -> gateway -> JSON -> Zod -> semantic checks -> one repair. */
-async function run<T>(gateway: LLMGateway, prompt: Prompt, payload: unknown, ctx: AiCallContextLike, schema: ZodType<T>, semantic: (v: T) => string[], maxTokens: number): Promise<AiResult<T>> {
+export async function run<T>(gateway: LLMGateway, prompt: Prompt, payload: unknown, ctx: AiCallContextLike, schema: ZodType<T>, semantic: (v: T) => string[], maxTokens: number, timeoutMs?: number): Promise<AiResult<T>> {
   const { value, result, repaired, usage } = await runStructured({
     gateway, schema, semantic,
-    request: { system: prompt.system, messages: [{ role: 'user', content: prompt.buildUser(payload) }], maxTokens, temperature: 0.3 },
+    request: { system: prompt.system, messages: [{ role: 'user', content: prompt.buildUser(payload) }], maxTokens, temperature: 0.3, timeoutMs },
     meta: { capability: prompt.id, promptId: prompt.id, promptVersion: prompt.version, workspaceId: ctx.workspaceId, projectId: ctx.projectId, userId: ctx.userId },
   });
   const ai: AiMeta = { promptId: prompt.id, promptVersion: prompt.version, provider: result.provider, model: result.model, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, repaired };

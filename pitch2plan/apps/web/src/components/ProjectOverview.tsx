@@ -45,7 +45,7 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
         </div>
         {project.status === 'IDEA' || project.status === 'DISCOVERY'
           ? <Link href={`/projects/${project.id}/discovery`}><Button>Continue to Discovery</Button></Link>
-          : <Link href={`/projects/${project.id}/brief`}><Button>View Architecture Brief</Button></Link>}
+          : <Link href={`/projects/${project.id}/${['ARCHITECTURE_GENERATING', 'ARCHITECTURE_READY', 'IMPLEMENTING'].includes(project.status) ? 'architecture' : 'brief'}`}><Button>{['ARCHITECTURE_GENERATING', 'ARCHITECTURE_READY', 'IMPLEMENTING'].includes(project.status) ? 'View architecture' : 'View Architecture Brief'}</Button></Link>}
       </div>
 
       <section className="rounded-lg border border-border bg-panel p-5">

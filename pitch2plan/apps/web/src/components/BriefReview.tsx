@@ -103,7 +103,7 @@ export function BriefReview({ projectId }: { projectId: string }) {
         <Link href={`/projects/${projectId}/discovery`}><Button variant="ghost">Back to discovery</Button></Link>
       </header>
 
-      {confirmed && <Alert tone="neutral" title="Requirements confirmed">Your requirements were confirmed{version.confirmedAt ? ` on ${new Date(version.confirmedAt).toLocaleString()}` : ''}. Architecture generation comes next and will start from this brief.</Alert>}
+      {confirmed && <Alert tone="neutral" title="Requirements confirmed">Your requirements were confirmed{version.confirmedAt ? ` on ${new Date(version.confirmedAt).toLocaleString()}` : ''}. Architecture is designed from this brief.<Link href={`/projects/${projectId}/architecture`} className="ml-2 underline">Generate the architecture</Link></Alert>}
       {view.stale && !confirmed && <Alert tone="warn" title="Your requirements changed after this brief was written" action={<Button variant="secondary" loading={busy === 'Writing your Architecture Brief…'} onClick={generate}>Regenerate brief</Button>}>Regenerate it to review and confirm the latest version.</Alert>}
       {error && <Alert title="That didn’t work">{error.message}</Alert>}
       {view.openConflicts.length > 0 && !confirmed && <Alert tone="warn" title={`${view.openConflicts.length} conflicting requirement${view.openConflicts.length === 1 ? '' : 's'} to resolve`} action={<Link href={`/projects/${projectId}/discovery`}><Button variant="secondary">Resolve in discovery</Button></Link>}>{view.openConflicts[0]!.description}</Alert>}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   createProjectRequestSchema, ideaInterpretationSchema, submitPitchRequestSchema,
-  validateArchitectureIntegrity, validateInterpretationAgainstPitch, type IdeaInterpretation,
+  validateInterpretationAgainstPitch, type IdeaInterpretation,
 } from '../src';
 
 const pitch = 'I want an app where customers book  haircuts.\nBarbers manage their own schedule.';
@@ -57,14 +57,3 @@ describe('request schemas', () => {
   });
 });
 
-describe('validateArchitectureIntegrity', () => {
-  it('reports edges and decisions that reference unknown nodes, and duplicate keys', () => {
-    const issues = validateArchitectureIntegrity({
-      id: 'a', version: 1,
-      nodes: [{ stableKey: 'q', name: 'Queue', technology: 'X', category: 'ingest', purpose: 'p' }, { stableKey: 'q', name: 'Dup', technology: 'X', category: 'c', purpose: 'p' }],
-      edges: [{ id: 'e1', fromKey: 'q', toKey: 'ghost' }],
-      decisions: [{ id: 'd1', nodeKey: 'nope', title: 't', rationale: 'r', requirementIds: [], alternatives: [] }],
-    });
-    expect(issues).toHaveLength(3);
-  });
-});
