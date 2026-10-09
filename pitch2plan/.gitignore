@@ -1,0 +1,8 @@
+node_modules
+.next
+.env
+packages/db/src/generated
+test-results
+playwright-report
+*.tsbuildinfo
+next-env.d.ts

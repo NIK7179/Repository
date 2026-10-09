@@ -1,0 +1,1289 @@
+generator client {
+  provider               = "prisma-client"
+  output                 = "../src/generated"
+  engineType             = "client"
+  runtime                = "nodejs"
+  generatedFileExtension = "ts"
+  importFileExtension    = ""
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+enum ProjectStatus {
+  IDEA
+  DISCOVERY
+  REQUIREMENTS_CONFIRMED
+  ARCHITECTURE_GENERATING
+  ARCHITECTURE_READY
+  IMPLEMENTING
+  ARCHIVED
+}
+
+enum TechnicalLevel {
+  BEGINNER
+  DEVELOPER
+  ARCHITECT
+  FOUNDER
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+model User {
+  id              String            @id @default(uuid()) @db.Uuid
+  externalId      String            @unique
+  email           String            @unique
+  name            String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  memberships     WorkspaceMember[]
+  projectsCreated Project[]
+  pitches         IdeaPitch[]
+}
+
+model Workspace {
+  id             String            @id @default(uuid()) @db.Uuid
+  name           String
+  isPersonal     Boolean           @default(false)
+  /// Reserved so Organizations can be introduced later without a disruptive migration.
+  organizationId String?           @db.Uuid
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  members        WorkspaceMember[]
+  projects       Project[]
+  usageEvents    UsageEvent[]
+  auditLogs      AuditLog[]
+  analyticsEvents AnalyticsEvent[]
+
+  @@index([organizationId])
+}
+
+model WorkspaceMember {
+  id          String        @id @default(uuid()) @db.Uuid
+  workspaceId String        @db.Uuid
+  userId      String        @db.Uuid
+  role        WorkspaceRole
+  createdAt   DateTime      @default(now())
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+}
+
+model Project {
+  id              String               @id @default(uuid()) @db.Uuid
+  workspaceId     String               @db.Uuid
+  createdById     String               @db.Uuid
+  name            String
+  description     String?
+  status          ProjectStatus        @default(IDEA)
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  deletedAt       DateTime?
+  workspace       Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  createdBy       User                 @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  pitches         IdeaPitch[]
+  interpretations IdeaInterpretation[]
+  conversations   Conversation[]
+  discoverySession DiscoverySession?
+  requirements    Requirement[]
+  conflicts       DiscoveryConflict[]
+  brief           ArchitectureBrief?
+  drivers         ArchitectureDriver[]
+  architecture    Architecture?
+  generationRuns  ArchitectureGenerationRun[]
+  implementationPlan ImplementationPlan?
+  implementationRuns ImplementationGenerationRun[]
+
+  @@index([workspaceId, deletedAt, updatedAt])
+  @@index([createdById])
+  changeProposals     ArchitectureChangeProposal[]
+  architectureReviews ArchitectureReview[]
+  knowledgeCitations  KnowledgeCitation[]
+
+}
+
+/// Append-only. The user's original words are never overwritten.
+model IdeaPitch {
+  id              String               @id @default(uuid()) @db.Uuid
+  projectId       String               @db.Uuid
+  authorId        String               @db.Uuid
+  version         Int
+  content         String
+  technicalLevel  TechnicalLevel?
+  createdAt       DateTime             @default(now())
+  project         Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  author          User                 @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  interpretations IdeaInterpretation[]
+
+  @@unique([projectId, version])
+  @@index([authorId])
+}
+
+/// AI interpretation, stored separately from the pitch it was derived from.
+model IdeaInterpretation {
+  id            String    @id @default(uuid()) @db.Uuid
+  projectId     String    @db.Uuid
+  pitchId       String    @db.Uuid
+  promptId      String
+  promptVersion Int
+  provider      String
+  model         String
+  output        Json
+  createdAt     DateTime  @default(now())
+  project       Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  pitch         IdeaPitch @relation(fields: [pitchId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+  @@index([pitchId])
+}
+
+model Conversation {
+  id        String    @id @default(uuid()) @db.Uuid
+  projectId String    @db.Uuid
+  /// PROJECT | COMPONENT | TASK (later: REVIEW, CHANGE_PROPOSAL)
+  scope     String    @default("PROJECT")
+  /// PROJECT: the project id. COMPONENT: the component stableKey. TASK: the task id.
+  scopeId   String    @default("")
+  createdById String? @db.Uuid
+  title     String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  messages  Message[]
+
+  @@unique([projectId, scope, scopeId, createdById])
+  @@index([projectId])
+}
+
+model Message {
+  id             String       @id @default(uuid()) @db.Uuid
+  conversationId String       @db.Uuid
+  role           MessageRole
+  content        String
+  /// COMPLETE | FAILED. A partial assistant answer is never stored as COMPLETE.
+  status         String       @default("COMPLETE")
+  structured     Json?
+  contextRefs    Json?
+  clientMessageId String?
+  createdById    String?      @db.Uuid
+  createdAt      DateTime     @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, clientMessageId])
+  @@index([conversationId, createdAt])
+}
+
+model UsageEvent {
+  id            String    @id @default(uuid()) @db.Uuid
+  workspaceId   String    @db.Uuid
+  projectId     String?   @db.Uuid
+  userId        String?   @db.Uuid
+  capability    String
+  provider      String
+  model         String
+  promptId      String?
+  promptVersion Int?
+  inputTokens   Int?
+  outputTokens  Int?
+  latencyMs     Int
+  success       Boolean
+  errorCode     String?
+  createdAt     DateTime  @default(now())
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@index([projectId])
+}
+
+model AuditLog {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @db.Uuid
+  projectId   String?   @db.Uuid
+  actorId     String?   @db.Uuid
+  action      String
+  entityType  String?
+  entityId    String?
+  metadata    Json?
+  requestId   String?
+  createdAt   DateTime  @default(now())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@index([projectId])
+}
+
+// ---------------------------------------------------------------- Phase 2: discovery
+
+enum DiscoverySessionStatus {
+  ACTIVE
+  READY_FOR_BRIEF
+}
+
+enum DiscoveryRoundStatus {
+  OPEN
+  ANSWERED
+  COMPLETED
+  SKIPPED
+}
+
+enum RequirementStatus {
+  ACTIVE
+  SUPERSEDED
+  DISMISSED
+}
+
+enum RequirementOrigin {
+  USER_STATED
+  USER_ANSWERED
+  AI_INFERRED
+  AI_RECOMMENDED
+  SYSTEM_DERIVED
+}
+
+enum RequirementVersionSource {
+  USER_STATED
+  USER_ANSWERED
+  AI_INFERRED
+  AI_RECOMMENDED
+  SYSTEM_DERIVED
+  USER_EDITED
+}
+
+enum ConflictStatus {
+  OPEN
+  RESOLVED
+}
+
+enum BriefStatus {
+  DRAFT
+  CONFIRMED
+}
+
+model DiscoverySession {
+  id           String                 @id @default(uuid()) @db.Uuid
+  projectId    String                 @unique @db.Uuid
+  status       DiscoverySessionStatus @default(ACTIVE)
+  /// [{ id, text, status: OPEN|RESOLVED|ACCEPTED, critical }]
+  unknowns     Json
+  finishReason String?
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+  project      Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  rounds       DiscoveryRound[]
+  questions    DiscoveryQuestion[]
+}
+
+model DiscoveryRound {
+  id                   String               @id @default(uuid()) @db.Uuid
+  sessionId            String               @db.Uuid
+  number               Int
+  kind                 String
+  status               DiscoveryRoundStatus @default(OPEN)
+  reasonForAnotherRound String              @default("")
+  canGenerateBrief     Boolean              @default(false)
+  /// prompt id/version, provider, model, token usage, repaired
+  ai                   Json
+  createdAt            DateTime             @default(now())
+  completedAt          DateTime?
+  session              DiscoverySession     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  questions            DiscoveryQuestion[]
+
+  @@unique([sessionId, number])
+}
+
+model DiscoveryQuestion {
+  id                  String                    @id @default(uuid()) @db.Uuid
+  sessionId           String                    @db.Uuid
+  roundId             String                    @db.Uuid
+  /// The AI-assigned question id; unique within a session.
+  key                 String
+  category            String
+  question            String
+  whyItMatters        String
+  answerType          String
+  required            Boolean
+  priority            String
+  allowRecommendation Boolean
+  relatedUnknowns     Json
+  numberRange         Json?
+  advanced            Json?
+  position            Int
+  session             DiscoverySession          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  round               DiscoveryRound            @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  options             DiscoveryQuestionOption[]
+  answer              DiscoveryAnswer?
+
+  @@unique([sessionId, key])
+  @@index([roundId])
+}
+
+model DiscoveryQuestionOption {
+  id          String            @id @default(uuid()) @db.Uuid
+  questionId  String            @db.Uuid
+  key         String
+  label       String
+  description String            @default("")
+  position    Int
+  question    DiscoveryQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([questionId, key])
+}
+
+model DiscoveryAnswer {
+  id                   String            @id @default(uuid()) @db.Uuid
+  questionId           String            @unique @db.Uuid
+  /// userChoice: { kind: OPTIONS|BOOLEAN|NUMBER_RANGE|FREE_TEXT|RECOMMEND|SKIP, ... }
+  choice               Json
+  advanced             Json?
+  /// Set when kind = RECOMMEND: the value Pitch2Plan chose, and why.
+  resolvedValue        String?
+  recommendationReason String?
+  answeredById         String            @db.Uuid
+  createdAt            DateTime          @default(now())
+  question             DiscoveryQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+}
+
+model Requirement {
+  id             String               @id @default(uuid()) @db.Uuid
+  projectId      String               @db.Uuid
+  key            String
+  category       String
+  status         RequirementStatus    @default(ACTIVE)
+  currentVersion Int                  @default(1)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  project        Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  versions       RequirementVersion[]
+  drivers        ArchitectureDriverRequirement[]
+  decisionLinks  DecisionRequirementLink[]
+  taskLinks      TaskRequirementLink[]
+
+  @@unique([projectId, key])
+  @@index([projectId, status])
+}
+
+/// Append-only history. A change is always a new version; nothing is mutated destructively.
+model RequirementVersion {
+  id                String                   @id @default(uuid()) @db.Uuid
+  requirementId     String                   @db.Uuid
+  version           Int
+  statement         String
+  value             String?
+  origin            RequirementOrigin
+  source            RequirementVersionSource
+  confidence        Float?
+  tags              Json
+  previousStatement String?
+  previousValue     String?
+  createdById       String?                  @db.Uuid
+  roundId           String?                  @db.Uuid
+  ai                Json?
+  createdAt         DateTime                 @default(now())
+  requirement       Requirement              @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  sources           RequirementSource[]
+
+  @@unique([requirementId, version])
+}
+
+model RequirementSource {
+  id         String             @id @default(uuid()) @db.Uuid
+  versionId  String             @db.Uuid
+  /// PITCH_QUOTE | ANSWER | RECOMMENDATION | USER_EDIT | INTERPRETATION
+  kind       String
+  questionKey String?
+  quote      String?
+  createdAt  DateTime           @default(now())
+  version    RequirementVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@index([versionId])
+}
+
+model DiscoveryConflict {
+  id             String         @id @default(uuid()) @db.Uuid
+  projectId      String         @db.Uuid
+  fingerprint    String
+  /// RULE | AI
+  detectedBy     String
+  ruleId         String?
+  severity       String
+  title          String
+  description    String
+  requirementIds Json
+  status         ConflictStatus @default(OPEN)
+  resolution     Json?
+  resolvedById   String?        @db.Uuid
+  resolvedAt     DateTime?
+  ai             Json?
+  createdAt      DateTime       @default(now())
+  project        Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, fingerprint])
+  @@index([projectId, status])
+}
+
+model ArchitectureBrief {
+  id                 String                  @id @default(uuid()) @db.Uuid
+  projectId          String                  @unique @db.Uuid
+  status             BriefStatus             @default(DRAFT)
+  confirmedVersionId String?                 @db.Uuid
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+  project            Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  versions           ArchitectureBriefVersion[]
+}
+
+model ArchitectureBriefVersion {
+  id                      String            @id @default(uuid()) @db.Uuid
+  briefId                 String            @db.Uuid
+  version                 Int
+  content                 Json
+  /// Hash of the active requirement versions the brief was generated from; a mismatch means the brief is stale.
+  requirementsFingerprint String
+  ai                      Json
+  createdById             String            @db.Uuid
+  createdAt               DateTime          @default(now())
+  confirmedAt             DateTime?
+  confirmedById           String?           @db.Uuid
+  acceptedUnknownIds      Json?
+  brief                   ArchitectureBrief @relation(fields: [briefId], references: [id], onDelete: Cascade)
+  drivers                 ArchitectureDriver[]
+
+  @@unique([briefId, version])
+  /// Set when this brief version was derived from an approved change proposal that changed requirements.
+  sourceProposalId        String?           @unique @db.Uuid
+
+}
+
+/// Prepares the traceability chain Requirement -> Driver -> (Phase 3) Decision -> Technology.
+model ArchitectureDriver {
+  id             String                   @id @default(uuid()) @db.Uuid
+  projectId      String                   @db.Uuid
+  briefVersionId String                   @db.Uuid
+  key            String
+  name           String
+  description    String
+  priority       String
+  project        Project                  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  briefVersion   ArchitectureBriefVersion @relation(fields: [briefVersionId], references: [id], onDelete: Cascade)
+  requirements   ArchitectureDriverRequirement[]
+  decisionLinks  DecisionDriverLink[]
+
+  @@unique([briefVersionId, key])
+  @@index([projectId])
+}
+
+model ArchitectureDriverRequirement {
+  driverId      String             @db.Uuid
+  requirementId String             @db.Uuid
+  driver        ArchitectureDriver @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  requirement   Requirement        @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+
+  @@id([driverId, requirementId])
+  @@index([requirementId])
+}
+
+/// Product events. Properties never contain raw user answers.
+model AnalyticsEvent {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @db.Uuid
+  projectId   String?   @db.Uuid
+  userId      String?   @db.Uuid
+  name        String
+  properties  Json?
+  createdAt   DateTime  @default(now())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@index([projectId, name])
+}
+
+// ---------------------------------------------------------------- Phase 3: architecture
+
+enum ArchitectureVersionStatus {
+  DRAFT
+  VALIDATING
+  CRITIQUING
+  READY
+  FAILED
+  SUPERSEDED
+}
+
+enum GenerationRunStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+enum DecisionStatus {
+  PROPOSED
+  ACCEPTED
+  DEPRECATED
+  SUPERSEDED
+}
+
+model Architecture {
+  id               String                @id @default(uuid()) @db.Uuid
+  projectId        String                @unique @db.Uuid
+  currentVersionId String?               @db.Uuid
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  project          Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  versions         ArchitectureVersion[]
+}
+
+/// Immutable once READY (enforced by a database trigger as well as by the repositories).
+model ArchitectureVersion {
+  id                  String                    @id @default(uuid()) @db.Uuid
+  architectureId      String                    @db.Uuid
+  versionNumber       Int
+  status              ArchitectureVersionStatus @default(DRAFT)
+  /// One version per generation run: the unique constraint is what makes worker retries safe.
+  generationRunId     String                    @unique @db.Uuid
+  briefVersionId      String                    @db.Uuid
+  summary             String
+  assumptions         Json
+  unresolvedQuestions Json
+  risks               Json
+  ai                  Json
+  createdAt           DateTime                  @default(now())
+  finalizedAt         DateTime?
+  architecture        Architecture              @relation(fields: [architectureId], references: [id], onDelete: Cascade)
+  run                 ArchitectureGenerationRun @relation(fields: [generationRunId], references: [id], onDelete: Cascade)
+  nodes               ArchitectureNode[]
+  edges               ArchitectureEdge[]
+  decisions           ArchitectureDecision[]
+  issues              ArchitectureGenerationIssue[]
+  implementationPlanVersion ImplementationPlanVersion?
+  taskComponentLinks  TaskComponentLink[]
+
+  @@unique([architectureId, versionNumber])
+  parentVersionId   String?   @db.Uuid
+  /// At most one version per approved proposal (unique): this is what makes change application retry-safe.
+  sourceProposalId  String?   @unique @db.Uuid
+  sourceProposal    ArchitectureChangeProposal? @relation("ProposalResult", fields: [sourceProposalId], references: [id], onDelete: Restrict)
+  proposalsBound    ArchitectureChangeProposal[] @relation("ProposalBase")
+  diffsFrom         ArchitectureVersionDiff[] @relation("DiffFrom")
+  diffsTo           ArchitectureVersionDiff[] @relation("DiffTo")
+  reviews           ArchitectureReview[]
+
+}
+
+model ArchitectureNode {
+  id                String               @id @default(uuid()) @db.Uuid
+  versionId         String               @db.Uuid
+  /// Conceptual identity across versions. Never a database id.
+  stableKey         String
+  name              String
+  technology        String
+  technologySlug    String
+  category          String
+  purpose           String
+  description       String
+  criticality       String
+  managedService    Boolean
+  provider          String?
+  deploymentModel   String
+  configuration     Json
+  risks             Json
+  alternatives      Json
+  status            String               @default("ACTIVE")
+  /// Lineage: this component replaces the one with this stableKey in the previous version.
+  replacesStableKey String?
+  version           ArchitectureVersion  @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  decisionLinks     NodeDecisionLink[]
+
+  @@unique([versionId, stableKey])
+}
+
+model ArchitectureEdge {
+  id               String              @id @default(uuid()) @db.Uuid
+  versionId        String              @db.Uuid
+  edgeKey          String
+  sourceStableKey  String
+  targetStableKey  String
+  label            String
+  protocol         String
+  communicationType String
+  dataDescription  String
+  synchronous      Boolean
+  encrypted        Boolean?
+  criticality      String
+  version          ArchitectureVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  decisionLinks    EdgeDecisionLink[]
+
+  @@unique([versionId, edgeKey])
+}
+
+model ArchitectureDecision {
+  id               String                   @id @default(uuid()) @db.Uuid
+  versionId        String                   @db.Uuid
+  /// adr-001 style key, stable within a version.
+  key              String
+  title            String
+  problem          String
+  decision         String
+  rationale        String
+  status           DecisionStatus
+  tradeoffs        Json
+  risks            Json
+  alternatives     Json
+  consequences     Json
+  confidence       Float
+  createdAt        DateTime                 @default(now())
+  version          ArchitectureVersion      @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  driverLinks      DecisionDriverLink[]
+  requirementLinks DecisionRequirementLink[]
+  nodeLinks        NodeDecisionLink[]
+  edgeLinks        EdgeDecisionLink[]
+  taskLinks        TaskDecisionLink[]
+
+  @@unique([versionId, key])
+  /// The decision this one replaces in the PREVIOUS version. That version's rows are immutable, so its decision's effective status is DERIVED from this link.
+  supersedesDecisionId String? @db.Uuid
+  supersedes           ArchitectureDecision?  @relation("Supersession", fields: [supersedesDecisionId], references: [id], onDelete: Restrict)
+  supersededBy         ArchitectureDecision[] @relation("Supersession")
+
+}
+
+model DecisionDriverLink {
+  decisionId String               @db.Uuid
+  driverId   String               @db.Uuid
+  decision   ArchitectureDecision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  driver     ArchitectureDriver   @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@id([decisionId, driverId])
+  @@index([driverId])
+}
+
+model DecisionRequirementLink {
+  decisionId    String               @db.Uuid
+  requirementId String               @db.Uuid
+  decision      ArchitectureDecision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  requirement   Requirement          @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+
+  @@id([decisionId, requirementId])
+  @@index([requirementId])
+}
+
+model NodeDecisionLink {
+  decisionId String               @db.Uuid
+  nodeId     String               @db.Uuid
+  decision   ArchitectureDecision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  node       ArchitectureNode     @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+
+  @@id([decisionId, nodeId])
+  @@index([nodeId])
+}
+
+model EdgeDecisionLink {
+  decisionId String               @db.Uuid
+  edgeId     String               @db.Uuid
+  decision   ArchitectureDecision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  edge       ArchitectureEdge     @relation(fields: [edgeId], references: [id], onDelete: Cascade)
+
+  @@id([decisionId, edgeId])
+  @@index([edgeId])
+}
+
+model ArchitectureGenerationRun {
+  id             String              @id @default(uuid()) @db.Uuid
+  projectId      String              @db.Uuid
+  briefVersionId String              @db.Uuid
+  status         GenerationRunStatus @default(QUEUED)
+  /// What the worker is doing right now (a real stage, not a fake percentage).
+  currentStage   String              @default("QUEUED")
+  attempt        Int                 @default(0)
+  repairCount    Int                 @default(0)
+  /// Safe, user-presentable failure information. Raw provider errors are never stored here.
+  failureCode    String?
+  failureMessage String?
+  jobId          String?             @unique
+  requestedById  String              @db.Uuid
+  ai             Json?
+  createdAt      DateTime            @default(now())
+  startedAt      DateTime?
+  heartbeatAt    DateTime?
+  finishedAt     DateTime?
+  project        Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  version        ArchitectureVersion?
+  issues         ArchitectureGenerationIssue[]
+
+  @@index([projectId, createdAt])
+  @@index([status, heartbeatAt])
+  /// INITIAL (from confirmed requirements) or CHANGE (applying an approved change proposal to the current version).
+  mode           String              @default("INITIAL")
+  proposalId     String?             @unique @db.Uuid
+  baseVersionId  String?             @db.Uuid
+  proposal       ArchitectureChangeProposal? @relation("ProposalRun", fields: [proposalId], references: [id], onDelete: Restrict)
+
+}
+
+model ArchitectureGenerationIssue {
+  id                     String                    @id @default(uuid()) @db.Uuid
+  runId                  String                    @db.Uuid
+  versionId              String?                   @db.Uuid
+  /// PLAN | AFTER_REPAIR_n | FINAL
+  stage                  String
+  /// STRUCTURAL | SEMANTIC | CRITIC
+  source                 String
+  severity               String
+  category               String
+  code                   String
+  description            String
+  affectedNodeStableKeys Json
+  affectedDecisionKeys   Json
+  relatedRequirementCodes Json
+  recommendation         String
+  createdAt              DateTime                  @default(now())
+  run                    ArchitectureGenerationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  version                ArchitectureVersion?      @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+  @@index([versionId])
+}
+
+// ---------------------------------------------------------------- Phase 4: implementation
+
+model ImplementationPlan {
+  id               String                      @id @default(uuid()) @db.Uuid
+  projectId        String                      @unique @db.Uuid
+  currentVersionId String?                     @db.Uuid
+  createdAt        DateTime                    @default(now())
+  updatedAt        DateTime                    @updatedAt
+  project          Project                     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  versions         ImplementationPlanVersion[]
+}
+
+/// Bound to exactly ONE immutable architecture version. Its content never changes; only task progress does.
+model ImplementationPlanVersion {
+  id                   String                    @id @default(uuid()) @db.Uuid
+  planId               String                    @db.Uuid
+  versionNumber        Int
+  architectureVersionId String                   @unique @db.Uuid
+  generationRunId      String                    @unique @db.Uuid
+  summary              String
+  /// [{ stableKey, reason }] components that deliberately need no implementation
+  componentCoverage    Json
+  ai                   Json
+  createdAt            DateTime                  @default(now())
+  plan                 ImplementationPlan        @relation(fields: [planId], references: [id], onDelete: Cascade)
+  architectureVersion  ArchitectureVersion       @relation(fields: [architectureVersionId], references: [id], onDelete: Restrict)
+  run                  ImplementationGenerationRun @relation(fields: [generationRunId], references: [id], onDelete: Cascade)
+  phases               ImplementationPhase[]
+  tasks                ImplementationTask[]
+  issues               ImplementationGenerationIssue[]
+
+  @@unique([planId, versionNumber])
+  /// ACTIVE | PENDING_REVIEW (generated for a new architecture version, waiting for the progress-migration review) | SUPERSEDED
+  activation            String                    @default("ACTIVE")
+  supersedesPlanVersionId String?                 @db.Uuid
+  sourceProposalId      String?                   @db.Uuid
+  migrationsIn          ImplementationMigration[] @relation("MigTo")
+  migrationsOut         ImplementationMigration[] @relation("MigFrom")
+
+}
+
+model ImplementationPhase {
+  id            String                    @id @default(uuid()) @db.Uuid
+  planVersionId String                    @db.Uuid
+  key           String
+  sequence      Int
+  name          String
+  objective     String
+  description   String
+  status        String                    @default("NOT_STARTED")
+  planVersion   ImplementationPlanVersion @relation(fields: [planVersionId], references: [id], onDelete: Cascade)
+  tasks         ImplementationTask[]
+
+  @@unique([planVersionId, key])
+  @@unique([planVersionId, sequence])
+}
+
+model ImplementationTask {
+  id              String                    @id @default(uuid()) @db.Uuid
+  planVersionId   String                    @db.Uuid
+  phaseId         String                    @db.Uuid
+  key             String
+  sequence        Int
+  title           String
+  objective       String
+  description     String
+  whyThisTask     String
+  taskType        String
+  complexity      String
+  effort          String
+  status          String                    @default("NOT_STARTED")
+  prerequisites   Json
+  instructions    String
+  expectedOutcome String
+  validationSteps Json
+  commonProblems  Json
+  securityNotes   Json
+  operationalNotes Json
+  /// Documentation references. Model-suggested links are UNVERIFIED guidance, never project configuration.
+  references      Json
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+  planVersion     ImplementationPlanVersion @relation(fields: [planVersionId], references: [id], onDelete: Cascade)
+  phase           ImplementationPhase       @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  steps           TaskStep[]
+  dependencies    TaskDependency[]          @relation("TaskDependsOn")
+  dependents      TaskDependency[]          @relation("TaskDependedOnBy")
+  componentLinks  TaskComponentLink[]
+  decisionLinks   TaskDecisionLink[]
+  requirementLinks TaskRequirementLink[]
+  progressEvents  TaskProgressEvent[]
+  validations     TaskValidation[]
+
+  @@unique([planVersionId, key])
+  @@unique([planVersionId, sequence])
+  @@index([phaseId])
+  migrationAsV1         ImplementationMigrationItem[] @relation("MigV1")
+  migrationAsV2         ImplementationMigrationItem[] @relation("MigV2")
+
+}
+
+model TaskStep {
+  id             String             @id @default(uuid()) @db.Uuid
+  taskId         String             @db.Uuid
+  sequence       Int
+  title          String
+  instruction    String
+  expectedResult String
+  validation     String             @default("")
+  status         String             @default("NOT_STARTED")
+  completedAt    DateTime?
+  task           ImplementationTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, sequence])
+}
+
+model TaskDependency {
+  taskId          String             @db.Uuid
+  dependsOnTaskId String             @db.Uuid
+  task            ImplementationTask @relation("TaskDependsOn", fields: [taskId], references: [id], onDelete: Cascade)
+  dependsOn       ImplementationTask @relation("TaskDependedOnBy", fields: [dependsOnTaskId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, dependsOnTaskId])
+  @@index([dependsOnTaskId])
+}
+
+/// Links by (architectureVersionId, stableKey): stable keys are the identity of a component, technology names can change.
+model TaskComponentLink {
+  taskId                String              @db.Uuid
+  architectureVersionId String              @db.Uuid
+  stableKey             String
+  task                  ImplementationTask  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  architectureVersion   ArchitectureVersion @relation(fields: [architectureVersionId], references: [id], onDelete: Restrict)
+
+  @@id([taskId, stableKey])
+  @@index([architectureVersionId, stableKey])
+}
+
+model TaskDecisionLink {
+  taskId     String               @db.Uuid
+  decisionId String               @db.Uuid
+  task       ImplementationTask   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  decision   ArchitectureDecision @relation(fields: [decisionId], references: [id], onDelete: Restrict)
+
+  @@id([taskId, decisionId])
+  @@index([decisionId])
+}
+
+model TaskRequirementLink {
+  taskId        String             @db.Uuid
+  requirementId String             @db.Uuid
+  task          ImplementationTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  requirement   Requirement        @relation(fields: [requirementId], references: [id], onDelete: Restrict)
+
+  @@id([taskId, requirementId])
+  @@index([requirementId])
+}
+
+/// Append-only history of status changes. Status is never silently overwritten.
+model TaskProgressEvent {
+  id         String             @id @default(uuid()) @db.Uuid
+  taskId     String             @db.Uuid
+  fromStatus String
+  toStatus   String
+  reason     String?
+  actorId    String             @db.Uuid
+  createdAt  DateTime           @default(now())
+  task       ImplementationTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, createdAt])
+}
+
+/// One row per validation step. confirmationKind is USER_CONFIRMED unless Pitch2Plan itself checked an external system (SYSTEM_VERIFIED, future).
+model TaskValidation {
+  id               String             @id @default(uuid()) @db.Uuid
+  taskId           String             @db.Uuid
+  position         Int
+  label            String
+  confirmed        Boolean            @default(false)
+  confirmationKind String?
+  confirmedById    String?            @db.Uuid
+  confirmedAt      DateTime?
+  task             ImplementationTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, position])
+}
+
+model ImplementationGenerationRun {
+  id                    String                      @id @default(uuid()) @db.Uuid
+  projectId             String                      @db.Uuid
+  architectureVersionId String                      @db.Uuid
+  status                GenerationRunStatus         @default(QUEUED)
+  currentStage          String                      @default("QUEUED")
+  attempt               Int                         @default(0)
+  repairCount           Int                         @default(0)
+  failureCode           String?
+  failureMessage        String?
+  jobId                 String?                     @unique
+  requestedById         String                      @db.Uuid
+  ai                    Json?
+  createdAt             DateTime                    @default(now())
+  startedAt             DateTime?
+  heartbeatAt           DateTime?
+  finishedAt            DateTime?
+  project               Project                     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  version               ImplementationPlanVersion?
+  issues                ImplementationGenerationIssue[]
+
+  @@index([projectId, createdAt])
+  @@index([status, heartbeatAt])
+  /// Set when this run builds the plan for the architecture version produced by this proposal (a chained, pending plan).
+  chainProposalId       String?                     @unique @db.Uuid
+
+}
+
+model ImplementationGenerationIssue {
+  id             String                      @id @default(uuid()) @db.Uuid
+  runId          String                      @db.Uuid
+  planVersionId  String?                     @db.Uuid
+  stage          String
+  source         String
+  severity       String
+  category       String
+  code           String
+  description    String
+  taskKeys       Json
+  componentKeys  Json
+  decisionKeys   Json
+  recommendation String
+  createdAt      DateTime                    @default(now())
+  run            ImplementationGenerationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  planVersion    ImplementationPlanVersion?  @relation(fields: [planVersionId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+}
+
+// ---------------------------------------------------------------- Phase 5: safe architecture evolution
+
+model ArchitectureChangeProposal {
+  id                      String    @id @default(uuid()) @db.Uuid
+  projectId               String    @db.Uuid
+  /// The architecture version this proposal modifies. Immutable (trigger): a proposal never silently moves to another version.
+  baseVersionId           String    @db.Uuid
+  source                  String
+  requestedChange         String
+  reason                  String?
+  status                  String    @default("DRAFT")
+  changeType              String?
+  severity                String?
+  requiresReconfirmation  Boolean   @default(false)
+  requirementChanges      Json
+  analysis                Json?
+  analysisAi              Json?
+  analysisAttempt         Int       @default(0)
+  analysisHeartbeatAt     DateTime?
+  failureCode             String?
+  failureMessage          String?
+  assistantConversationId String?   @db.Uuid
+  assistantMessageId      String?   @db.Uuid
+  reviewFindingId         String?   @db.Uuid
+  /// Rebase creates a successor proposal against the current version; this points at the stale one it replaces.
+  rebasedFromId           String?   @db.Uuid
+  briefVersionId          String?   @db.Uuid
+  createdById             String    @db.Uuid
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+  analyzedAt              DateTime?
+  project                 Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  baseVersion             ArchitectureVersion @relation("ProposalBase", fields: [baseVersionId], references: [id], onDelete: Restrict)
+  rebasedFrom             ArchitectureChangeProposal?  @relation("Rebase", fields: [rebasedFromId], references: [id], onDelete: SetNull)
+  rebases                 ArchitectureChangeProposal[] @relation("Rebase")
+  reviewFinding           ArchitectureReviewFinding?   @relation(fields: [reviewFindingId], references: [id], onDelete: SetNull)
+  impactItems             ChangeProposalImpactItem[]
+  approval                ChangeProposalApproval?
+  run                     ArchitectureGenerationRun?   @relation("ProposalRun")
+  resultVersion           ArchitectureVersion?         @relation("ProposalResult")
+
+  @@index([projectId, createdAt])
+  @@index([baseVersionId, status])
+}
+
+/// Affected components, connections, decisions, drivers, requirements and tasks, one row each (queryable, never only prose).
+model ChangeProposalImpactItem {
+  id         String                     @id @default(uuid()) @db.Uuid
+  proposalId String                     @db.Uuid
+  /// NODE | EDGE | DECISION | DRIVER | REQUIREMENT | TASK
+  kind       String
+  refKey     String
+  /// DIRECT | POTENTIAL
+  relation   String
+  reason     String
+  taskId     String?                    @db.Uuid
+  proposal   ArchitectureChangeProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+
+  @@unique([proposalId, kind, refKey])
+}
+
+/// The explicit human decision. Exactly one per proposal; append-only.
+model ChangeProposalApproval {
+  id                          String                     @id @default(uuid()) @db.Uuid
+  proposalId                  String                     @unique @db.Uuid
+  decision                    String
+  decidedById                 String                     @db.Uuid
+  decidedAt                   DateTime                   @default(now())
+  architectureVersionId       String                     @db.Uuid
+  confirmedRequirementChanges Boolean                    @default(false)
+  note                        String?
+  proposal                    ArchitectureChangeProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+}
+
+/// Computed deterministically from the two stored versions when a change is applied; append-only.
+model ArchitectureVersionDiff {
+  id            String              @id @default(uuid()) @db.Uuid
+  fromVersionId String              @db.Uuid
+  toVersionId   String              @db.Uuid
+  proposalId    String?             @db.Uuid
+  summary       Json
+  entries       Json
+  createdAt     DateTime            @default(now())
+  fromVersion   ArchitectureVersion @relation("DiffFrom", fields: [fromVersionId], references: [id], onDelete: Restrict)
+  toVersion     ArchitectureVersion @relation("DiffTo", fields: [toVersionId], references: [id], onDelete: Restrict)
+
+  @@unique([fromVersionId, toVersionId])
+}
+
+/// The reviewed and accepted mapping of plan V1 progress onto plan V2. A snapshot taken at acceptance.
+model ImplementationMigration {
+  id                String                        @id @default(uuid()) @db.Uuid
+  fromPlanVersionId String                        @db.Uuid
+  toPlanVersionId   String                        @unique @db.Uuid
+  proposalId        String?                       @db.Uuid
+  acceptedById      String                        @db.Uuid
+  acceptedAt        DateTime                      @default(now())
+  summary           Json
+  fromPlanVersion   ImplementationPlanVersion     @relation("MigFrom", fields: [fromPlanVersionId], references: [id], onDelete: Restrict)
+  toPlanVersion     ImplementationPlanVersion     @relation("MigTo", fields: [toPlanVersionId], references: [id], onDelete: Restrict)
+  items             ImplementationMigrationItem[]
+}
+
+model ImplementationMigrationItem {
+  id          String                  @id @default(uuid()) @db.Uuid
+  migrationId String                  @db.Uuid
+  v1TaskId    String?                 @db.Uuid
+  v2TaskId    String?                 @db.Uuid
+  outcome     String
+  reason      String
+  v1Status    String?
+  migration   ImplementationMigration @relation(fields: [migrationId], references: [id], onDelete: Cascade)
+  v1Task      ImplementationTask?     @relation("MigV1", fields: [v1TaskId], references: [id], onDelete: Restrict)
+  v2Task      ImplementationTask?     @relation("MigV2", fields: [v2TaskId], references: [id], onDelete: Restrict)
+
+  @@index([migrationId])
+  @@index([v2TaskId])
+}
+
+/// A production readiness review of ONE architecture version.
+model ArchitectureReview {
+  id                    String                      @id @default(uuid()) @db.Uuid
+  projectId             String                      @db.Uuid
+  architectureVersionId String                      @db.Uuid
+  createdById           String                      @db.Uuid
+  assessment            String
+  ai                    Json
+  createdAt             DateTime                    @default(now())
+  project               Project                     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  architectureVersion   ArchitectureVersion         @relation(fields: [architectureVersionId], references: [id], onDelete: Restrict)
+  findings              ArchitectureReviewFinding[]
+
+  @@index([projectId, createdAt])
+}
+
+model ArchitectureReviewFinding {
+  id                        String                       @id @default(uuid()) @db.Uuid
+  reviewId                  String                       @db.Uuid
+  area                      String
+  severity                  String
+  title                     String
+  description               String
+  recommendation            String
+  nodeKeys                  Json
+  decisionKeys              Json
+  requiresArchitectureChange Boolean
+  suggestedChange           String
+  source                    String
+  review                    ArchitectureReview           @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  proposals                 ArchitectureChangeProposal[]
+
+  @@index([reviewId])
+}
+
+// ───────────────────────── Phase 6: trusted knowledge (docs/ADR/011, 012)
+
+/// An authority for one technology's documentation. Hosts come from the in-repo registry, never from a model.
+model KnowledgeSource {
+  id             String                  @id @default(uuid()) @db.Uuid
+  technologySlug String                  @unique
+  name           String
+  sourceType     String
+  provider       String
+  baseUrl        String
+  allowedDomains Json
+  trustLevel     Float                   @default(1)
+  enabled        Boolean                 @default(true)
+  lastIngestedAt DateTime?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  documents      KnowledgeDocument[]
+  runs           KnowledgeIngestionRun[]
+}
+
+model KnowledgeDocument {
+  id             String                    @id @default(uuid()) @db.Uuid
+  sourceId       String                    @db.Uuid
+  technologySlug String
+  canonicalUrl   String
+  title          String
+  status         String                    @default("ACTIVE")
+  /// Last time the page was fetched and compared (even when the content was unchanged). Staleness is measured from here.
+  checkedAt      DateTime                  @default(now())
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+  source         KnowledgeSource           @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  versions       KnowledgeDocumentVersion[]
+
+  @@unique([sourceId, canonicalUrl])
+  @@index([technologySlug, status])
+}
+
+/// A new version exists only when the content hash changed. Content fields are immutable (trigger); only `status` may move to SUPERSEDED.
+model KnowledgeDocumentVersion {
+  id             String            @id @default(uuid()) @db.Uuid
+  documentId     String            @db.Uuid
+  versionNumber  Int
+  contentHash    String
+  title          String
+  productVersion String?
+  publishedAt    DateTime?
+  sourceUpdatedAt DateTime?
+  retrievedAt    DateTime          @default(now())
+  status         String            @default("ACTIVE")
+  chunkCount     Int               @default(0)
+  injectionScore Float             @default(0)
+  document       KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  chunks         KnowledgeChunk[]
+
+  @@unique([documentId, versionNumber])
+  @@unique([documentId, contentHash])
+}
+
+model KnowledgeChunk {
+  id               String                   @id @default(uuid()) @db.Uuid
+  documentVersionId String                  @db.Uuid
+  documentId       String                   @db.Uuid
+  technologySlug   String
+  ordinal          Int
+  sectionTitle     String?
+  text             String
+  tokenEstimate    Int
+  injectionScore   Float                    @default(0)
+  /// REAL[] — pgvector is not installed; see ADR-012. The vector is a re-ranking signal, never proof of relevance.
+  embedding        Float[]
+  embeddingProvider String
+  embeddingModel   String
+  embeddingDimensions Int
+  embeddingVersion String
+  createdAt        DateTime                 @default(now())
+  documentVersion  KnowledgeDocumentVersion @relation(fields: [documentVersionId], references: [id], onDelete: Cascade)
+
+  @@unique([documentVersionId, ordinal])
+  @@index([technologySlug])
+}
+
+model KnowledgeIngestionRun {
+  id             String          @id @default(uuid()) @db.Uuid
+  sourceId       String          @db.Uuid
+  kind           String
+  status         String          @default("PENDING")
+  attempt        Int             @default(0)
+  failureCode    String?
+  failureMessage String?
+  retryable      Boolean         @default(false)
+  jobId          String?         @unique
+  stats          Json?
+  requestedById  String?         @db.Uuid
+  createdAt      DateTime        @default(now())
+  startedAt      DateTime?
+  heartbeatAt    DateTime?
+  finishedAt     DateTime?
+  source         KnowledgeSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([sourceId, createdAt])
+  @@index([status, heartbeatAt])
+}
+
+/// Observability only. Never stores the question text.
+model KnowledgeRetrievalRun {
+  id               String   @id @default(uuid()) @db.Uuid
+  projectId        String?  @db.Uuid
+  userId           String   @db.Uuid
+  scope            String
+  technologySlugs  Json
+  candidateCount   Int
+  selectedCount    Int
+  durationMs       Int
+  technologyMatch  Boolean
+  versionMatch     String
+  groundingStatus  String
+  citationCount    Int
+  createdAt        DateTime @default(now())
+
+  @@index([projectId, createdAt])
+}
+
+/// A snapshot taken when an answer was produced. The document may be refreshed later; the citation keeps what the user saw.
+model KnowledgeCitation {
+  id                String   @id @db.Uuid
+  projectId         String   @db.Uuid
+  userId            String   @db.Uuid
+  messageId         String?  @db.Uuid
+  n                 Int
+  chunkId           String   @db.Uuid
+  documentVersionId String   @db.Uuid
+  snapshot          Json
+  createdAt         DateTime @default(now())
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+  @@index([messageId])
+}

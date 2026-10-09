@@ -1,0 +1,63 @@
+# Development guide
+
+## Daily loop
+`npm run db:up` once, then `npm run dev`. After pulling schema changes: `npm run db:migrate` and `npm install` (regenerates the Prisma client).
+
+## Changing the schema
+1. Edit `packages/db/prisma/schema.prisma`.
+2. `npm run migrate:dev -w @pitch2plan/db -- --name <change>` creates and applies a migration.
+3. Update the repository mapping in `packages/db/src/repositories.ts` and the port in `packages/domain/src/ports.ts` if the domain needs it.
+4. Tests rebuild `pitch2plan_test` from the committed migrations on every run, so a missing migration fails the tests.
+
+## Adding an AI capability
+1. Zod output schema + semantic validator in `packages/schemas`.
+2. Versioned prompt in `packages/ai/src/prompts/` (never edit a released version; add `V2`).
+3. A capability class that calls `runStructured` (see `idea-interpreter.ts`).
+4. Expose it to the domain through a port, wire it in `container.ts`, test with `MockLLMProvider({ script: [...] })`.
+
+## Testing
+* Unit tests live beside each package (`packages/*/test`, `apps/web/src/**/*.test.ts`).
+* Integration tests (`test/integration`) run the real application service and repositories against PostgreSQL with the mock AI provider.
+* Use `MockLLMProvider({ script: [...] })` to simulate malformed output, errors and slowness. Tests assert business outcomes (what is persisted, what is rejected), not that mocks were called.
+* E2E: `npm run build && npm run test:e2e`.
+
+## Rules of the road
+No Prisma outside `packages/db`. No business logic in route handlers or components. No vendor SDK outside `packages/ai/src/providers`.
+Never persist unvalidated model output. Never log secrets or (outside debug) prompts.
+
+## Phase 2 notes
+* `npm run test:ui` needs a fresh `npm run build`; it starts the production server on port 3101 and **resets `TEST_DATABASE_URL`**.
+* The hand-written migrations are checked against `schema.prisma` by `test/integration/schema-drift.test.ts`. Run `prisma migrate dev` once with network access and confirm it reports no drift.
+* Simulate AI behaviour with `makeApp({ script: [...] })` (see `test/integration/discovery.test.ts`): scripted strings are consumed one per model call, in order. Build "otherwise valid, one defect" responses so a test fails for the reason in its name.
+* Quality of questions can only be judged by reading them: `npm run eval:discovery`. Schema validity is not quality.
+
+## Phase 3 notes
+* Architecture generation needs a worker. `npm run dev` runs one inside the web process; in production run `npm run worker` and set `WORKER_MODE=external`.
+* Tests use `ManualQueue` (jobs wait until `h.runJobs()`), so worker behaviour is explicit. `test/integration/jobs.test.ts` uses the real pg-boss (schema `pgboss_test`).
+* To script model output for a project, build the exact planner input with `contextFor(h, projectId)` and feed `mockPlan(...)` variants through `makeApp({ script: [...] })`. Make fixtures valid except for ONE defect so tests fail for the reason in their name.
+* The main vitest config excludes `apps/web/test-ui/**` (those need the production server). Run them with `npm run test:ui`.
+* React Flow in jsdom: nodes need explicit `width`/`height`/`handles` for edges to render (the adapter provides them), and use `fireEvent.click` on nodes because d3-drag reads `event.view`, which user-event does not set.
+* Mutation checks used while building Phase 3 are described in the Phase 3 report; the pattern is: remove one safeguard, run the relevant tests, expect a failure, restore.
+
+## Phase 4 notes
+* A READY architecture is the starting point: `architectureReadyProject(h)` / `implementationReadyProject(h)` in `test/helpers.ts` build one with the mock AI; `implInputFor(h, projectId)` gives the exact planner input so tests can script realistic (and deliberately broken) model output.
+* Assistant tests inject a fake `AssistantAiPort` (`makeApp(..., { assistantAi })`) to simulate partial streams, provider errors and disconnects. The default mock provider streams a grounded answer.
+* The UI tests (`apps/web/test-ui`) drive the real production server and its inline worker; `architectureReadyViaApi` / `implementationReadyViaApi` set up state. Use `fireEvent.click` on React Flow nodes. When a control is disabled while a request is in flight, `waitFor` it to be enabled before clicking.
+* Mutation discipline: remove one safeguard, run the relevant tests, expect a failure, restore. Use a runner that restores in a `trap` and runs in the background with a per-run timeout; a killed runner once left a deliberately broken file behind.
+* `npm run eval:implementation` is for humans: read the plans; the printed metrics are heuristics.
+
+## Phase 5 notes
+* `test/integration/change.test.ts` builds a started project (V1, plan V1, several completed tasks) and drives the whole change path with the mock AI. Script model output with `makeApp({ script })`; to test staleness, approve a second proposal first.
+* UI tests that navigate must go through `lib/navigate` (`__setNavigator`) and reset the captured URLs per test: a shared log lets `waitFor` pass on a previous test's URL.
+* Never create several promises up front and await them one by one (`for (const p of [a(), b()]) await expect(p).rejects...`): a later one can reject before a handler is attached and vitest reports an unhandled rejection. Create each lazily.
+* Mutation runs: use a runner that restores in `finally` and keeps on-disk backups (`/tmp/p5bak`), runs in the background with a per-mutant timeout, and logs results. A layered safeguard (service check + transition table + repository compare-and-set) needs a direct test per layer; a mutant that can never be the deciding layer is documented as equivalent.
+* `npm run eval:change` is for humans: read the proposals; the printed checks are heuristics.
+
+## Phase 6 notes
+* **Three test topologies, three configs.** `npx vitest run` (unit + integration, in-process app, `ManualQueue`, mock AI, fixture fetcher); `npm run test:ui` (jsdom components against a real `next start` on port 3101 with `KNOWLEDGE_FETCHER=fixture`; run `npm run build` first); `npm run test:e2e` (Playwright). Do not import one harness into another.
+* To test the assistant's grounding defences, give `makeApp` a stub `assistantAi` that says whatever the test needs (invented citation numbers, a self-declared status) and assert on what the server stores. See `test/integration/grounded-assistant.test.ts`.
+* To test ingestion failure and prompt injection, pass `FixtureDocumentFetcher({ allow: true, overrides, failing })` to `makeApp`. Truncate `"KnowledgeSource" CASCADE` (and retrieval runs when counting them) at the start of a suite: knowledge tables are shared.
+* Never copy vendor documentation into the repo. Fixture pages are paraphrases titled "[Test fixture]".
+* A new technology: add it to `TECH_DOCS` (hosts, aliases, seed URLs), add a fixture page for each seed URL (`FIXTURE_COVERS_REGISTRY` is asserted by a test), then run `npm run eval:grounding`.
+* `npm run eval:grounding -- --fixtures` is an offline harness smoke test only; it says nothing about real quality.
+* Mutation checks for Phase 6 (`scripts/mutation-phase6.py`, `scripts/mutants-phase6.json`) run on a COPY of the repo (`cp -a` to a scratch directory) against a separate database and restore each file in `finally`. A surviving mutant means a missing test.
