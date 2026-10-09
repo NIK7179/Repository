@@ -42,7 +42,10 @@ export function ImplementationView({ projectId, decisionFilter, componentFilter 
   }, [projectId]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
-    if (data?.state !== 'GENERATING') return;
+    // Also poll while a plan for a newer architecture version is being generated (after an approved change): the active plan is
+    // READY meanwhile, and the pending-migration banner must appear when that run finishes.
+    const running = data?.run?.status === 'QUEUED' || data?.run?.status === 'RUNNING';
+    if (data?.state !== 'GENERATING' && !running) return;
     timer.current = setTimeout(() => void load(), POLL_MS);
     return () => { if (timer.current) clearTimeout(timer.current); };
   }, [data, load]);

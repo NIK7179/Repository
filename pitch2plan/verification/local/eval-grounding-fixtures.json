@@ -1,0 +1,58 @@
+{
+  "at": "2026-10-09T17:07:12.922Z",
+  "mode": "fixtures",
+  "answers": false,
+  "passed": 7,
+  "total": 7,
+  "results": [
+    {
+      "name": "MSK: authenticate a Java client",
+      "pass": true,
+      "topUrl": "https://docs.aws.amazon.com/msk/latest/developerguide/iam-access-control.html",
+      "selected": 1,
+      "note": "expected a URL containing \"iam-access-control\""
+    },
+    {
+      "name": "RDS: backups",
+      "pass": true,
+      "topUrl": "https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithAutomatedBackups.html",
+      "selected": 3,
+      "note": "expected a URL containing \"USER_WorkingWithAutomatedBackups\""
+    },
+    {
+      "name": "S3: encryption at rest",
+      "pass": true,
+      "topUrl": "https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingEncryption.html",
+      "selected": 2,
+      "note": "expected a URL containing \"UsingEncryption\""
+    },
+    {
+      "name": "Kubernetes: expose a service",
+      "pass": true,
+      "topUrl": "https://kubernetes.io/docs/concepts/services-networking/service/",
+      "selected": 1,
+      "note": "expected a URL containing \"services-networking/service\""
+    },
+    {
+      "name": "Anthropic: credential handling",
+      "pass": true,
+      "topUrl": "https://docs.claude.com/en/api/overview",
+      "selected": 1,
+      "note": "expected a URL containing \"api/overview\""
+    },
+    {
+      "name": "OFF-TOPIC: MSK autoscaling by CPU",
+      "pass": true,
+      "topUrl": null,
+      "selected": 0,
+      "note": "expected NO citation"
+    },
+    {
+      "name": "OFF-TOPIC: generic question",
+      "pass": true,
+      "topUrl": null,
+      "selected": 0,
+      "note": "expected NO citation"
+    }
+  ]
+}

@@ -5,7 +5,13 @@
  */
 import { PgBossJobQueue } from '@pitch2plan/jobs';
 import { composeRuntime } from '@pitch2plan/runtime';
+import { existsSync } from 'node:fs';
 import { z } from 'zod';
+
+// Monorepo: load the repository-root .env (like the web app's next.config) so `npm run worker` works locally.
+// Variables already set in the environment win, so deployments that inject real env vars are unaffected.
+const rootEnv = new URL('../../../.env', import.meta.url);
+if (existsSync(rootEnv)) process.loadEnvFile(rootEnv);
 
 const env = z.object({
   DATABASE_URL: z.string().min(1),

@@ -1,0 +1,36 @@
+(node:18927) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+> pitch2plan@0.1.0 eval:grounding
+> tsx --env-file=.env scripts/eval-grounding.mts --out=verification/local/eval-grounding-live-proxy.json
+
+(node:18939) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:18950) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:18950) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+FAIL  MSK: authenticate a Java client
+      top: (none)  selected: 0  (expected a URL containing "iam-access-control")
+
+FAIL  RDS: backups
+      top: (none)  selected: 0  (expected a URL containing "USER_WorkingWithAutomatedBackups")
+
+FAIL  S3: encryption at rest
+      top: (none)  selected: 0  (expected a URL containing "UsingEncryption")
+
+FAIL  Kubernetes: expose a service
+      top: (none)  selected: 0  (expected a URL containing "services-networking/service")
+
+FAIL  Anthropic: credential handling
+      top: (none)  selected: 0  (expected a URL containing "api/overview")
+
+PASS  OFF-TOPIC: MSK autoscaling by CPU
+      top: (none)  selected: 0  (expected NO citation)
+
+PASS  OFF-TOPIC: generic question
+      top: (none)  selected: 0  (expected NO citation)
+
+Retrieval: 2/7 cases as expected. Mode: LIVE documentation.
+Written verification/local/eval-grounding-live-proxy.json

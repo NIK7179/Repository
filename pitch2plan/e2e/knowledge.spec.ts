@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-// NOT RUN in the build environment (no Playwright browser download). Written against the same test ids the real-server UI tests exercise.
+// Written against the same test ids the real-server UI tests exercise. First run in a real browser during local setup (docs/LOCAL_SETUP.md).
 const PITCH = 'I want to create a platform that processes millions of transaction events in real time and detects fraud. Merchants should get alerts when a payment looks suspicious.';
 
 test('component documentation and a grounded answer with a citation the user can inspect', async ({ page }) => {

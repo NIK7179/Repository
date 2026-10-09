@@ -1,8 +1,9 @@
 import { loadEnvConfig } from '@next/env';
 import type { NextConfig } from 'next';
+import { fileURLToPath } from 'node:url';
 
-// Monorepo: load the repository-root .env so `npm run dev` works from anywhere.
-loadEnvConfig(new URL('../../', import.meta.url).pathname, process.env.NODE_ENV !== 'production', { info() {}, error: console.error }, true);
+// Monorepo: load the repository-root .env so `npm run dev` works from anywhere. fileURLToPath (not URL.pathname) so Windows paths resolve.
+loadEnvConfig(fileURLToPath(new URL('../../', import.meta.url)), process.env.NODE_ENV !== 'production', { info() {}, error: console.error }, true);
 
 const isDev = process.env.NODE_ENV !== 'production';
 const csp = [

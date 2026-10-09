@@ -37,7 +37,8 @@ test('started implementation -> request a change -> impact review -> approve -> 
   // Complete the first task honestly, so there is real progress at stake.
   await page.getByTestId('next-task').getByRole('link', { name: 'Open task' }).click();
   await page.getByRole('button', { name: 'Start task' }).click();
-  for (const box of await page.getByTestId('validation-check').all()) await box.check();
+  // Server-confirmed checkboxes only change after the API answers, so click and wait for the confirmed state (check() expects an immediate change).
+  for (const box of await page.getByTestId('validation-check').all()) { await box.click(); await expect(box).toBeChecked(); }
   await page.getByTestId('complete-task').click();
   await expect(page.getByTestId('completed-note')).toContainText('confirmed by you');
 

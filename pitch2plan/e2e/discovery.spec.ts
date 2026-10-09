@@ -23,6 +23,7 @@ test('pitch an idea, answer discovery, review the brief and confirm requirements
   }
   await page.getByRole('button', { name: 'Submit answers' }).click();
   await expect(page.getByRole('heading', { name: 'Round 2' })).toBeVisible({ timeout: 30_000 });
+  await page.getByText(/Your earlier answers/).click(); // the recommendation is recorded under the collapsed earlier answers
   await expect(page.getByText('We recommended').first()).toBeVisible();
 
   const second = page.getByTestId('question-card');

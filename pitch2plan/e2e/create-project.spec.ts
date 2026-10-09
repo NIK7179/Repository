@@ -17,13 +17,13 @@ test('sign in, create a project, submit an idea and see the interpretation', asy
   await page.getByRole('link', { name: 'Create your first project' }).click();
   await page.getByLabel('Project name').fill('x');
   await page.getByRole('button', { name: 'Continue' }).click();
-  await expect(page.getByRole('alert')).toContainText('at least 2 characters');
+  await expect(page.locator('#name-error')).toContainText('at least 2 characters'); // getByRole('alert') also matches Next's route announcer
   await page.getByLabel('Project name').fill(projectName);
   await page.getByRole('button', { name: 'Continue' }).click();
 
   await page.getByLabel('Your idea').fill('too short');
   await page.getByRole('button', { name: 'Analyze my idea' }).click();
-  await expect(page.getByRole('alert')).toContainText('at least 20 characters');
+  await expect(page.locator('#pitch-error')).toContainText('at least 20 characters');
 
   await page.getByLabel('Your idea').fill(PITCH);
   await page.getByRole('button', { name: 'Analyze my idea' }).click();
@@ -35,7 +35,7 @@ test('sign in, create a project, submit an idea and see the interpretation', asy
   await expect(view).toContainText('Things we still need to understand');
 
   await page.getByRole('link', { name: 'Continue to Discovery' }).click();
-  await expect(page.getByText('Coming in Phase 2')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Round 1' })).toBeVisible({ timeout: 30_000 }); // discovery (Phase 2) replaced the Phase 1 placeholder
 
   await page.goto('/projects');
   await expect(page.getByTestId('project-list')).toContainText(projectName);
@@ -55,12 +55,15 @@ test("one user cannot open another user's project", async ({ browser }) => {
   await a.getByLabel('Your idea').fill(PITCH);
   await a.getByRole('button', { name: 'Analyze my idea' }).click();
   await a.getByRole('link', { name: 'View project' }).click();
+  await a.waitForURL(/\/projects\/[0-9a-f-]{36}$/);
   const url = a.url();
 
   const b = await (await browser.newContext()).newPage();
   await b.goto('/sign-in');
   await b.getByLabel('Email').fill(`intruder-${Date.now()}@example.com`);
   await b.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(b).toHaveURL(/\/projects$/); // let the sign-in redirect finish before navigating
   await b.goto(url);
-  await expect(b.getByText('Project not found')).toBeVisible();
+  await expect(b.getByText('Project not found', { exact: true })).toBeVisible();
+  await expect(b.getByText('Private project')).toHaveCount(0); // nothing of the owner's project leaks
 });

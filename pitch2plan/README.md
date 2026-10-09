@@ -21,6 +21,8 @@ through building it.
 
 Requirements: Node 20+ (22 recommended), Docker (or any PostgreSQL 16).
 
+First time on a new machine? See [docs/LOCAL_SETUP.md](docs/LOCAL_SETUP.md) (prerequisites, tests, smoke tests, Claude setup, troubleshooting).
+
 ```bash
 npm install                 # also generates the Prisma client
 cp .env.example .env

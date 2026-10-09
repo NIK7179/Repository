@@ -1,0 +1,58 @@
+{
+  "at": "2026-10-09T17:08:37.981Z",
+  "mode": "live",
+  "answers": false,
+  "passed": 2,
+  "total": 7,
+  "results": [
+    {
+      "name": "MSK: authenticate a Java client",
+      "pass": false,
+      "topUrl": null,
+      "selected": 0,
+      "note": "expected a URL containing \"iam-access-control\""
+    },
+    {
+      "name": "RDS: backups",
+      "pass": false,
+      "topUrl": null,
+      "selected": 0,
+      "note": "expected a URL containing \"USER_WorkingWithAutomatedBackups\""
+    },
+    {
+      "name": "S3: encryption at rest",
+      "pass": false,
+      "topUrl": null,
+      "selected": 0,
+      "note": "expected a URL containing \"UsingEncryption\""
+    },
+    {
+      "name": "Kubernetes: expose a service",
+      "pass": false,
+      "topUrl": null,
+      "selected": 0,
+      "note": "expected a URL containing \"services-networking/service\""
+    },
+    {
+      "name": "Anthropic: credential handling",
+      "pass": false,
+      "topUrl": null,
+      "selected": 0,
+      "note": "expected a URL containing \"api/overview\""
+    },
+    {
+      "name": "OFF-TOPIC: MSK autoscaling by CPU",
+      "pass": true,
+      "topUrl": null,
+      "selected": 0,
+      "note": "expected NO citation"
+    },
+    {
+      "name": "OFF-TOPIC: generic question",
+      "pass": true,
+      "topUrl": null,
+      "selected": 0,
+      "note": "expected NO citation"
+    }
+  ]
+}

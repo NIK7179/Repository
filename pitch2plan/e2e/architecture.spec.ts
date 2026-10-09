@@ -33,6 +33,6 @@ test('confirmed requirements -> generate architecture -> explore the canvas -> s
   await expect(page.getByTestId('node-inspector')).toBeVisible();
   await expect(page.getByTestId('why-summary')).toContainText('is here because');
   await page.getByRole('tab', { name: 'Data flow' }).click();
-  await page.getByRole('link', { name: 'Decisions' }).click();
+  await page.getByRole('link', { name: 'Decisions', exact: true }).click();
   await expect(page.getByTestId('decision-card').first()).toContainText('ADR-001');
 });
