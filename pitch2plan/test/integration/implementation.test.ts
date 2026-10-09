@@ -455,7 +455,7 @@ describe('Ask Architect', () => {
     expect((await h.repos.conversations.list(convo!.id, 10)).map((m) => `${m.role}:${m.status}`)).toEqual(['USER:COMPLETE', 'ASSISTANT:COMPLETE']);
     expect(JSON.stringify((await h.app.architecture.getOverview(p.ctx, p.project.id)).current)).toBe(archBefore);
     const usage = await h.prisma.usageEvent.findMany({ where: { projectId: p.project.id, capability: 'TASK_ASSISTANT' } });
-    expect(usage).toHaveLength(1); expect(usage[0]).toMatchObject({ success: true, promptId: 'TASK_ASSISTANT', promptVersion: 1 });
+    expect(usage).toHaveLength(1); expect(usage[0]).toMatchObject({ success: true, promptId: 'TASK_ASSISTANT', promptVersion: 2 });
     expect(JSON.stringify((await h.prisma.analyticsEvent.findMany({ where: { projectId: p.project.id, name: 'assistant_answered' } })).map((e) => e.properties))).not.toMatch(/Why do I need this/);
   });
 

@@ -19,6 +19,13 @@ const schema = z.object({
   WORKER_MODE: z.enum(['inline', 'external']).optional(),
   ARCH_MAX_REPAIRS: z.coerce.number().int().min(0).max(5).default(2),
   ARCH_STALE_RUN_MS: z.coerce.number().int().positive().default(600_000),
+  /** http = fetch real documentation from allow-listed hosts; fixture = labelled test pages (needs ALLOW_FIXTURE_DOCS=true); off = never fetch. */
+  KNOWLEDGE_FETCHER: z.enum(['http', 'fixture', 'off']).default('http'),
+  ALLOW_FIXTURE_DOCS: z.enum(['true', 'false']).default('false'),
+  KNOWLEDGE_STALE_DAYS: z.coerce.number().int().min(1).max(3650).default(30),
+  KNOWLEDGE_REFRESH_DAYS: z.coerce.number().int().min(1).max(365).default(7),
+  /** Exposes /api/knowledge/status (indexing diagnostics). Off by default in production. */
+  KNOWLEDGE_DIAGNOSTICS: z.enum(['true', 'false']).optional(),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   /** Development only. Prompts may contain sensitive user data. */
   DEBUG_LOG_PROMPTS: z.enum(['true', 'false']).default('false'),
@@ -28,6 +35,7 @@ const schema = z.object({
   if (e.RATE_LIMIT_SCALE > 1 && e.ALLOW_DEV_AUTH !== 'true') ctx.addIssue({ code: 'custom', path: ['RATE_LIMIT_SCALE'], message: 'RATE_LIMIT_SCALE above 1 is only allowed together with ALLOW_DEV_AUTH=true (test and demo servers).' });
   const prod = e.NODE_ENV === 'production';
   if (e.AI_PROVIDER === 'anthropic' && !e.ANTHROPIC_API_KEY) ctx.addIssue({ code: 'custom', path: ['ANTHROPIC_API_KEY'], message: 'Required when AI_PROVIDER=anthropic' });
+  if (prod && e.KNOWLEDGE_FETCHER === 'fixture' && e.ALLOW_DEV_AUTH !== 'true') ctx.addIssue({ code: 'custom', path: ['KNOWLEDGE_FETCHER'], message: 'Fixture documentation must not run in production.' });
   if (prod && !e.AUTH_SECRET) ctx.addIssue({ code: 'custom', path: ['AUTH_SECRET'], message: 'Required in production' });
   if (prod && e.AUTH_PROVIDER === 'dev' && e.ALLOW_DEV_AUTH !== 'true') ctx.addIssue({ code: 'custom', path: ['AUTH_PROVIDER'], message: 'The dev auth provider is disabled in production. Integrate a real provider (see docs/ARCHITECTURE.md) or set ALLOW_DEV_AUTH=true for a throwaway demo.' });
 });

@@ -71,7 +71,7 @@ describe('assistant streaming', () => {
     expect(text).toContain('Database (Managed PostgreSQL on AWS'); expect(text).toContain(STRUCTURED_DELIMITER);
     expect(p.calls[0]!.system).toMatch(/You must NOT change the architecture/); expect(p.calls[0]!.system).toMatch(/Pitch2Plan never runs anything/);
     expect(p.calls[0]!.messages.at(-1)!.content).toContain('<project_context>'); expect(p.calls[0]!.messages.at(-1)!.content).toContain('Question: Why do I need this?');
-    expect(usage).toMatchObject([{ capability: 'TASK_ASSISTANT', success: true, promptId: 'TASK_ASSISTANT', promptVersion: 1 }]);
+    expect(usage).toMatchObject([{ capability: 'TASK_ASSISTANT', success: true, promptId: 'TASK_ASSISTANT', promptVersion: 2 }]);
   });
   it('times out a stalled stream, records the failure, and reports a normalized error', async () => {
     // eslint-disable-next-line require-yield -- a stalled provider never produces a chunk; that is the point

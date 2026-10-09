@@ -5,9 +5,10 @@ import { Alert, Badge, Skeleton } from '@pitch2plan/ui';
 import { ApiError, call, type ComponentWorkspaceDto } from '@/lib/api-client';
 import { readinessLabel, statusLabel, statusTone, typeLabel } from '@/lib/impl-labels';
 import { AskArchitect } from './AskArchitect';
+import { DocSearch, DocumentationSection } from './KnowledgeUi';
 import { TechIcon } from './TechIcon';
 
-const TABS = ['Overview', 'Implementation', 'Configuration', 'Connections', 'Decisions', 'Risks', 'Monitoring', 'Ask Architect'] as const;
+const TABS = ['Overview', 'Implementation', 'Configuration', 'Connections', 'Decisions', 'Risks', 'Monitoring', 'Documentation', 'Ask Architect'] as const;
 type Tab = (typeof TABS)[number];
 const FactTag = () => <Badge tone="accent">Architecture</Badge>;
 const GuidanceTag = () => <span title="Suggested by the AI planner. Useful, but it is not part of your architecture and nothing here is applied automatically."><Badge tone="warn">AI guidance</Badge></span>;
@@ -16,6 +17,7 @@ const Empty = ({ children }: { children: React.ReactNode }) => <p className="tex
 export function ComponentWorkspace({ projectId, stableKey, initialTab }: { projectId: string; stableKey: string; initialTab?: string }) {
   const [d, setD] = useState<ComponentWorkspaceDto | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
+  const [docTechs, setDocTechs] = useState<Array<{ slug: string; name: string }>>([]);
   const [tab, setTab] = useState<Tab>((TABS as readonly string[]).includes(initialTab ?? '') ? (initialTab as Tab) : 'Overview');
   useEffect(() => {
     let live = true; setD(null);
@@ -68,7 +70,7 @@ export function ComponentWorkspace({ projectId, stableKey, initialTab }: { proje
               {d.facts.configuration.length ? <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">{d.facts.configuration.map((k) => <><dt key={`k-${k.key}`} className="text-muted">{k.key}</dt><dd key={`v-${k.key}`}>{k.value}</dd></>)}</dl> : <Empty>The architecture records no specific settings for this component.</Empty>}</section>
             <section className="rounded-lg border border-border bg-panel p-4"><div className="flex items-center gap-2"><h2 className="text-sm font-semibold">Security considerations</h2><GuidanceTag /></div>{d.guidance.securityNotes.length ? <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">{d.guidance.securityNotes.map((n, i) => <li key={i}>{n}</li>)}</ul> : <Empty>None yet.</Empty>}</section>
             <section className="rounded-lg border border-border bg-panel p-4"><div className="flex items-center gap-2"><h2 className="text-sm font-semibold">Common issues</h2><GuidanceTag /></div>{d.guidance.commonIssues.length ? <ul className="mt-2 space-y-2 text-sm">{d.guidance.commonIssues.map((x, i) => <li key={i}><p className="font-medium">{x.problem}</p><p className="text-muted">{x.resolution}</p></li>)}</ul> : <Empty>None yet.</Empty>}</section>
-            {d.guidance.references.length > 0 && <section className="rounded-lg border border-border bg-panel p-4"><div className="flex items-center gap-2"><h2 className="text-sm font-semibold">Documentation</h2><GuidanceTag /></div><ul className="mt-2 space-y-1 text-sm">{d.guidance.references.map((r) => <li key={r.url}><a href={r.url} target="_blank" rel="noopener noreferrer" className="text-accent underline">{r.title}</a> <span className="text-xs text-muted">unverified link</span></li>)}</ul></section>}
+            {d.guidance.references.length > 0 && <section className="rounded-lg border border-border bg-panel p-4"><div className="flex items-center gap-2"><h2 className="text-sm font-semibold">Other links (suggested by the AI)</h2><GuidanceTag /></div><ul className="mt-2 space-y-1 text-sm">{d.guidance.references.map((r) => <li key={r.url}><a href={r.url} target="_blank" rel="noopener noreferrer" className="text-accent underline">{r.title}</a> <span className="text-xs text-muted">unverified link</span></li>)}</ul></section>}
           </div>)}
 
         {tab === 'Connections' && (d.facts.connections.length === 0 ? <Empty>This component has no connections in the architecture.</Empty> : (
@@ -88,6 +90,14 @@ export function ComponentWorkspace({ projectId, stableKey, initialTab }: { proje
           <div className="space-y-4"><section className="rounded-lg border border-border bg-panel p-4"><div className="flex items-center gap-2"><h2 className="text-sm font-semibold">Monitoring tasks</h2><GuidanceTag /></div>
             {d.guidance.monitoring.length ? <ul className="mt-2 space-y-1 text-sm">{d.guidance.monitoring.map((m) => <li key={m.id} className="flex items-center gap-2"><Badge tone={statusTone(m.status)}>{statusLabel(m.status)}</Badge><Link href={`${base}/implementation/tasks/${m.id}`} className="hover:underline">{m.title}</Link></li>)}</ul> : <Empty>No monitoring tasks are planned for this component.</Empty>}</section>
             <section className="rounded-lg border border-border bg-panel p-4"><div className="flex items-center gap-2"><h2 className="text-sm font-semibold">Operational considerations</h2><GuidanceTag /></div>{d.guidance.operationalNotes.length ? <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">{d.guidance.operationalNotes.map((n, i) => <li key={i}>{n}</li>)}</ul> : <Empty>None yet.</Empty>}</section></div>)}
+
+        {tab === 'Documentation' && (
+          <div className="space-y-4" data-testid="component-docs">
+            <section className="rounded-lg border border-border bg-panel p-4"><div className="flex items-center gap-2"><h2 className="text-sm font-semibold">Official documentation</h2><Badge tone="ok">Allow-listed official sources</Badge></div>
+              <div className="mt-2"><DocumentationSection label="component" onLoaded={(x) => setDocTechs(x.technologies.filter((t) => t.availability !== 'NOT_COVERED').map((t) => ({ slug: t.slug, name: t.name })))} url={`/api/projects/${projectId}/components/${encodeURIComponent(stableKey)}/docs`} /></div></section>
+            <section className="rounded-lg border border-border bg-panel p-4"><h2 className="text-sm font-semibold">Search the documentation</h2>
+              <div className="mt-2"><DocSearch projectId={projectId} technologies={docTechs} /></div></section>
+          </div>)}
 
         {tab === 'Ask Architect' && <div className="h-[32rem]"><AskArchitect projectId={projectId} scope="COMPONENT" scopeId={stableKey} suggestions={[`Why does this project need ${c.name}?`, 'What should I configure first?', 'How do I secure this?', 'What can go wrong?']} /></div>}
       </div>

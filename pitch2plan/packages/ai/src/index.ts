@@ -19,3 +19,4 @@ export * from './providers/mock-implementation';
 export * from './capabilities/change';
 export * from './prompts/change';
 export * from './providers/mock-change';
+export * from './embeddings';

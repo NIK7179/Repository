@@ -113,6 +113,7 @@ model Project {
   @@index([createdById])
   changeProposals     ArchitectureChangeProposal[]
   architectureReviews ArchitectureReview[]
+  knowledgeCitations  KnowledgeCitation[]
 
 }
 
@@ -1145,4 +1146,144 @@ model ArchitectureReviewFinding {
   proposals                 ArchitectureChangeProposal[]
 
   @@index([reviewId])
+}
+
+// ───────────────────────── Phase 6: trusted knowledge (docs/ADR/011, 012)
+
+/// An authority for one technology's documentation. Hosts come from the in-repo registry, never from a model.
+model KnowledgeSource {
+  id             String                  @id @default(uuid()) @db.Uuid
+  technologySlug String                  @unique
+  name           String
+  sourceType     String
+  provider       String
+  baseUrl        String
+  allowedDomains Json
+  trustLevel     Float                   @default(1)
+  enabled        Boolean                 @default(true)
+  lastIngestedAt DateTime?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  documents      KnowledgeDocument[]
+  runs           KnowledgeIngestionRun[]
+}
+
+model KnowledgeDocument {
+  id             String                    @id @default(uuid()) @db.Uuid
+  sourceId       String                    @db.Uuid
+  technologySlug String
+  canonicalUrl   String
+  title          String
+  status         String                    @default("ACTIVE")
+  /// Last time the page was fetched and compared (even when the content was unchanged). Staleness is measured from here.
+  checkedAt      DateTime                  @default(now())
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+  source         KnowledgeSource           @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  versions       KnowledgeDocumentVersion[]
+
+  @@unique([sourceId, canonicalUrl])
+  @@index([technologySlug, status])
+}
+
+/// A new version exists only when the content hash changed. Content fields are immutable (trigger); only `status` may move to SUPERSEDED.
+model KnowledgeDocumentVersion {
+  id             String            @id @default(uuid()) @db.Uuid
+  documentId     String            @db.Uuid
+  versionNumber  Int
+  contentHash    String
+  title          String
+  productVersion String?
+  publishedAt    DateTime?
+  sourceUpdatedAt DateTime?
+  retrievedAt    DateTime          @default(now())
+  status         String            @default("ACTIVE")
+  chunkCount     Int               @default(0)
+  injectionScore Float             @default(0)
+  document       KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  chunks         KnowledgeChunk[]
+
+  @@unique([documentId, versionNumber])
+  @@unique([documentId, contentHash])
+}
+
+model KnowledgeChunk {
+  id               String                   @id @default(uuid()) @db.Uuid
+  documentVersionId String                  @db.Uuid
+  documentId       String                   @db.Uuid
+  technologySlug   String
+  ordinal          Int
+  sectionTitle     String?
+  text             String
+  tokenEstimate    Int
+  injectionScore   Float                    @default(0)
+  /// REAL[] — pgvector is not installed; see ADR-012. The vector is a re-ranking signal, never proof of relevance.
+  embedding        Float[]
+  embeddingProvider String
+  embeddingModel   String
+  embeddingDimensions Int
+  embeddingVersion String
+  createdAt        DateTime                 @default(now())
+  documentVersion  KnowledgeDocumentVersion @relation(fields: [documentVersionId], references: [id], onDelete: Cascade)
+
+  @@unique([documentVersionId, ordinal])
+  @@index([technologySlug])
+}
+
+model KnowledgeIngestionRun {
+  id             String          @id @default(uuid()) @db.Uuid
+  sourceId       String          @db.Uuid
+  kind           String
+  status         String          @default("PENDING")
+  attempt        Int             @default(0)
+  failureCode    String?
+  failureMessage String?
+  retryable      Boolean         @default(false)
+  jobId          String?         @unique
+  stats          Json?
+  requestedById  String?         @db.Uuid
+  createdAt      DateTime        @default(now())
+  startedAt      DateTime?
+  heartbeatAt    DateTime?
+  finishedAt     DateTime?
+  source         KnowledgeSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([sourceId, createdAt])
+  @@index([status, heartbeatAt])
+}
+
+/// Observability only. Never stores the question text.
+model KnowledgeRetrievalRun {
+  id               String   @id @default(uuid()) @db.Uuid
+  projectId        String?  @db.Uuid
+  userId           String   @db.Uuid
+  scope            String
+  technologySlugs  Json
+  candidateCount   Int
+  selectedCount    Int
+  durationMs       Int
+  technologyMatch  Boolean
+  versionMatch     String
+  groundingStatus  String
+  citationCount    Int
+  createdAt        DateTime @default(now())
+
+  @@index([projectId, createdAt])
+}
+
+/// A snapshot taken when an answer was produced. The document may be refreshed later; the citation keeps what the user saw.
+model KnowledgeCitation {
+  id                String   @id @db.Uuid
+  projectId         String   @db.Uuid
+  userId            String   @db.Uuid
+  messageId         String?  @db.Uuid
+  n                 Int
+  chunkId           String   @db.Uuid
+  documentVersionId String   @db.Uuid
+  snapshot          Json
+  createdAt         DateTime @default(now())
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+  @@index([messageId])
 }

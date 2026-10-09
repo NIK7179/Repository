@@ -6,6 +6,7 @@ import { Alert, Badge, Button } from '@pitch2plan/ui';
 import { ApiError, call, type ConversationDto } from '@/lib/api-client';
 import { streamAsk, type AskInput } from '@/lib/assistant-client';
 import { newId, riskLabel, riskTone } from '@/lib/impl-labels';
+import { AnswerText, GroundingPanel, SourceInspector } from './KnowledgeUi';
 
 interface Item { id: string; role: 'USER' | 'ASSISTANT'; text: string; structured?: AssistantMessageContent | null }
 export interface AskArchitectProps { projectId: string; scope: 'PROJECT' | 'COMPONENT' | 'TASK'; scopeId?: string; stepId?: string | null; suggestions?: string[]; onClearStep?: () => void }
@@ -14,6 +15,7 @@ const DEFAULT_SUGGESTIONS = ['Why do I need this?', 'How do I validate this?', '
 function Structured({ projectId, m, proposeHref }: { projectId: string; m: AssistantMessageContent; proposeHref?: string }) {
   return (
     <div className="mt-3 space-y-3">
+      <GroundingPanel m={m} />
       {m.notices.map((n, i) => <Alert key={i} tone="warn" title="Please note">{n}</Alert>)}
       {m.needsArchitectureChange && (
         <div data-testid="needs-change-banner" className="rounded-md border border-warn/40 bg-warn/10 p-3 text-sm">
@@ -29,12 +31,14 @@ function Structured({ projectId, m, proposeHref }: { projectId: string; m: Assis
         <div key={i} data-testid="assistant-command" className="rounded-md border border-border bg-subtle p-3">
           <div className="flex flex-wrap items-center gap-2"><Badge tone={riskTone(c.risk)}><span data-testid="command-risk">{riskLabel(c.risk)}</span></Badge><span className="text-xs text-muted">{c.purpose}</span></div>
           <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-all text-xs"><code>{c.command}</code></pre>
+          {c.documented !== undefined && <p data-testid="command-grounding" data-documented={String(c.documented)} className="mt-1 text-xs">{c.documented ? <span className="text-ok">Backed by documentation (source {c.citations?.join(', ')})</span> : <span className="text-warn">Not backed by documentation: check it before you run it.</span>}</p>}
+          {c.placeholders && c.placeholders.length > 0 && <p data-testid="command-placeholders" className="mt-1 text-xs">Replace before running: {c.placeholders.map((x) => <code key={x} className="mr-1 rounded bg-bg px-1">{x}</code>)}</p>}
           <p className="mt-1 text-xs text-muted">{c.risk === 'DESTRUCTIVE' ? 'Destructive: this can permanently delete or overwrite things. ' : ''}Pitch2Plan never runs commands. You run it yourself, if you choose to.</p>
         </div>
       ))}
       {m.codeBlocks.map((b, i) => (
         <figure key={i} data-testid="assistant-code" className="rounded-md border border-border">
-          <figcaption className="flex items-center justify-between gap-2 border-b border-border px-3 py-1.5 text-xs"><span>{b.filename ?? b.language} · {b.purpose}</span><Badge tone="warn">Review before use</Badge></figcaption>
+          <figcaption className="flex items-center justify-between gap-2 border-b border-border px-3 py-1.5 text-xs"><span>{b.filename ?? b.language} · {b.purpose}</span><span className="flex gap-1">{b.citations && b.citations.length > 0 ? <Badge tone="ok">Documented (source {b.citations.join(', ')})</Badge> : <Badge tone="neutral">Not from documentation</Badge>}<Badge tone="warn">Review before use</Badge></span></figcaption>
           <pre className="overflow-x-auto p-3 text-xs"><code>{b.content}</code></pre>
         </figure>
       ))}
@@ -55,6 +59,7 @@ export function AskArchitect({ projectId, scope, scopeId, stepId, suggestions = 
   const last = useRef<AskInput | null>(null);
   const abort = useRef<AbortController | null>(null);
   const bottom = useRef<HTMLDivElement | null>(null);
+  const [inspect, setInspect] = useState<{ id: string; n: number } | null>(null);
   const busy = streaming !== null;
   /** Prefills a change proposal from this answer. The user reviews and edits it; nothing is created here. */
   const proposalHref = (m: Item, prev?: Item) => {
@@ -107,7 +112,7 @@ export function AskArchitect({ projectId, scope, scopeId, stepId, suggestions = 
         {loaded && items.length === 0 && !busy && <div><p className="text-sm text-muted">Ask anything about this part of your project.</p><div className="mt-2 flex flex-wrap gap-2">{suggestions.map((s) => <button key={s} onClick={() => send(s)} className="rounded-full border border-border px-3 py-1 text-xs hover:bg-subtle">{s}</button>)}</div></div>}
         {items.map((m, idx) => m.role === 'USER'
           ? <div key={m.id} data-testid="user-message" className="ml-8 rounded-lg bg-accent/10 px-3 py-2 text-sm">{m.text}</div>
-          : <div key={m.id} data-testid="assistant-message" className="mr-4 rounded-lg border border-border px-3 py-2 text-sm"><p className="whitespace-pre-wrap">{m.text}</p>{m.structured && <Structured projectId={projectId} m={m.structured} proposeHref={m.structured.needsArchitectureChange ? proposalHref(m, items[idx - 1]) : undefined} />}</div>)}
+          : <div key={m.id} data-testid="assistant-message" className="mr-4 rounded-lg border border-border px-3 py-2 text-sm">{m.structured?.citations?.length ? <AnswerText text={m.text} citations={m.structured.citations} onOpen={(n) => setInspect({ id: m.id, n })} /> : <p className="whitespace-pre-wrap">{m.text}</p>}{inspect?.id === m.id && m.structured?.citations?.find((c) => c.n === inspect.n) && <div className="mt-2"><SourceInspector citation={m.structured.citations.find((c) => c.n === inspect.n)!} onClose={() => setInspect(null)} /></div>}{m.structured && <Structured projectId={projectId} m={m.structured} proposeHref={m.structured.needsArchitectureChange ? proposalHref(m, items[idx - 1]) : undefined} />}</div>)}
         {streaming !== null && <div data-testid="ask-stream" role="status" aria-label="Answer in progress" className="mr-4 rounded-lg border border-border px-3 py-2 text-sm"><p className="whitespace-pre-wrap">{streaming || 'Thinking…'}</p></div>}
         {error && (
           <div data-testid="ask-error"><Alert title="The architect couldn’t finish that answer" action={<Button variant="secondary" data-testid="ask-retry" onClick={retry}>Try again</Button>}>{error.message}</Alert></div>

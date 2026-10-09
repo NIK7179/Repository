@@ -6,6 +6,7 @@ import type { PrismaClient } from './client';
 import { createArchitectureRepositories } from './repositories-architecture';
 import { createDiscoveryRepositories } from './repositories-discovery';
 import { createChangeRepositories } from './repositories-change';
+import { createKnowledgeRepositories } from './repositories-knowledge';
 import { createImplementationRepositories } from './repositories-implementation';
 import type { Prisma } from './generated/client';
 
@@ -51,6 +52,7 @@ export function createRepositories(prisma: PrismaClient): Repositories {
     ...createArchitectureRepositories(prisma),
     ...createImplementationRepositories(prisma),
     ...createChangeRepositories(prisma),
+    ...createKnowledgeRepositories(prisma),
     users: {
       async findById(id) {
         const u = await prisma.user.findUnique({ where: { id } });

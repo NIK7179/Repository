@@ -5,6 +5,7 @@ import { Alert, Badge, Button, Skeleton } from '@pitch2plan/ui';
 import { ApiError, call, timeAgo, type ImplementationOverviewDto, type TaskDetailDto } from '@/lib/api-client';
 import { statusLabel, statusTone, typeLabel } from '@/lib/impl-labels';
 import { AskArchitect } from './AskArchitect';
+import { DocumentationSection } from './KnowledgeUi';
 import { TechIcon } from './TechIcon';
 
 const asError = (e: unknown) => (e instanceof ApiError ? e : new ApiError('INTERNAL_ERROR', 'Unexpected error.'));
@@ -88,11 +89,12 @@ export function TaskWorkspace({ projectId, taskId }: { projectId: string; taskId
                 </div>
               </li>))}</ol>)}
         </Section>
+        <Section title={step ? 'Official documentation for the selected step' : 'Official documentation'} testId="task-docs"><DocumentationSection label="task" url={`/api/implementation/tasks/${taskId}/docs${step ? `?stepId=${step}` : ''}`} /></Section>
         <Section title="Expected result"><p>{t.expectedOutcome}</p></Section>
         {t.securityNotes.length > 0 && <Section title="Security considerations" testId="security"><Bullets items={t.securityNotes} /></Section>}
         {t.commonProblems.length > 0 && <Section title="Common issues" testId="common-issues"><ul className="space-y-2">{t.commonProblems.map((c, i) => <li key={i}><p className="font-medium">{c.problem}</p><p className="text-muted">{c.resolution}</p></li>)}</ul></Section>}
         {t.operationalNotes.length > 0 && <Section title="Operational notes"><Bullets items={t.operationalNotes} /></Section>}
-        {t.references.length > 0 && <Section title="Documentation (suggested by the AI, not verified)"><ul className="space-y-1">{t.references.map((r) => <li key={r.url}><a href={r.url} target="_blank" rel="noopener noreferrer" className="text-accent underline">{r.title}</a> <span className="text-xs text-muted">{r.technology}{r.version ? ` ${r.version}` : ''} · {r.sourceType.toLowerCase().replaceAll('_', ' ')}</span></li>)}</ul></Section>}
+        {t.references.length > 0 && <Section title="Other links suggested by the AI (not verified)"><ul className="space-y-1">{t.references.map((r) => <li key={r.url}><a href={r.url} target="_blank" rel="noopener noreferrer" className="text-accent underline">{r.title}</a> <span className="text-xs text-muted">{r.technology}{r.version ? ` ${r.version}` : ''} · {r.sourceType.toLowerCase().replaceAll('_', ' ')}</span></li>)}</ul></Section>}
 
         <Section title="Validation" testId="validation">
           <p className="text-xs text-muted">{active ? 'You confirm these checks yourself. Pitch2Plan has not verified anything in your environment.' : t.status === 'COMPLETED' ? 'Confirmed by you.' : 'Start the task to confirm these checks.'}</p>

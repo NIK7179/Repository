@@ -52,3 +52,12 @@ Never persist unvalidated model output. Never log secrets or (outside debug) pro
 * Never create several promises up front and await them one by one (`for (const p of [a(), b()]) await expect(p).rejects...`): a later one can reject before a handler is attached and vitest reports an unhandled rejection. Create each lazily.
 * Mutation runs: use a runner that restores in `finally` and keeps on-disk backups (`/tmp/p5bak`), runs in the background with a per-mutant timeout, and logs results. A layered safeguard (service check + transition table + repository compare-and-set) needs a direct test per layer; a mutant that can never be the deciding layer is documented as equivalent.
 * `npm run eval:change` is for humans: read the proposals; the printed checks are heuristics.
+
+## Phase 6 notes
+* **Three test topologies, three configs.** `npx vitest run` (unit + integration, in-process app, `ManualQueue`, mock AI, fixture fetcher); `npm run test:ui` (jsdom components against a real `next start` on port 3101 with `KNOWLEDGE_FETCHER=fixture`; run `npm run build` first); `npm run test:e2e` (Playwright). Do not import one harness into another.
+* To test the assistant's grounding defences, give `makeApp` a stub `assistantAi` that says whatever the test needs (invented citation numbers, a self-declared status) and assert on what the server stores. See `test/integration/grounded-assistant.test.ts`.
+* To test ingestion failure and prompt injection, pass `FixtureDocumentFetcher({ allow: true, overrides, failing })` to `makeApp`. Truncate `"KnowledgeSource" CASCADE` (and retrieval runs when counting them) at the start of a suite: knowledge tables are shared.
+* Never copy vendor documentation into the repo. Fixture pages are paraphrases titled "[Test fixture]".
+* A new technology: add it to `TECH_DOCS` (hosts, aliases, seed URLs), add a fixture page for each seed URL (`FIXTURE_COVERS_REGISTRY` is asserted by a test), then run `npm run eval:grounding`.
+* `npm run eval:grounding -- --fixtures` is an offline harness smoke test only; it says nothing about real quality.
+* Mutation checks for Phase 6 (`scripts/mutation-phase6.py`, `scripts/mutants-phase6.json`) run on a COPY of the repo (`cp -a` to a scratch directory) against a separate database and restore each file in `finally`. A surviving mutant means a missing test.

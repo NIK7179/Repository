@@ -72,3 +72,9 @@ export type ArchitectureDiffDto = Json<Awaited<ReturnType<ChangeService['getDiff
 export type PlanDiffDto = Json<Awaited<ReturnType<ChangeService['planDiff']>>>;
 export type ReviewDto = NonNullable<Json<Awaited<ReturnType<ChangeService['latestReview']>>>>;
 export type FailureImpactDto = Json<Awaited<ReturnType<ChangeService['failureImpact']>>>;
+
+import type { KnowledgeAccessService } from '@pitch2plan/domain';
+export type DocsDto = Json<Awaited<ReturnType<KnowledgeAccessService['docsForComponent']>>>;
+export type DocumentRefDto = DocsDto['documents'][number];
+export type CitationDetailDto = Json<Awaited<ReturnType<KnowledgeAccessService['getCitation']>>>;
+export type KnowledgeSearchDto = Json<Awaited<ReturnType<KnowledgeAccessService['search']>>>;

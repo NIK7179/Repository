@@ -1,6 +1,6 @@
-import { IdeaInterpreter, LLMGateway, MockLLMProvider, createArchitectureAi, createAssistantAi, createChangeAi, createDiscoveryAi, createImplementationAi } from '@pitch2plan/ai';
+import { IdeaInterpreter, LLMGateway, MockLLMProvider, createArchitectureAi, createAssistantAi, createChangeAi, createDiscoveryAi, createImplementationAi, HashingEmbeddingProvider } from '@pitch2plan/ai';
 import { createPrismaClient, createRepositories } from '@pitch2plan/db';
-import { createApplication, noopLogger } from '@pitch2plan/domain';
+import { FixtureDocumentFetcher, createApplication, noopLogger } from '@pitch2plan/domain';
 
 // Development seed. The pitch is a generic description; no architecture is hard-coded anywhere.
 const PITCH = 'Create a real-time transaction analytics system where applications publish events, events are processed continuously, and processed data is stored for analytics.';
@@ -10,7 +10,7 @@ if (!url) throw new Error('DATABASE_URL is required');
 const prisma = createPrismaClient(url);
 const repos = createRepositories(prisma);
 const gateway = new LLMGateway({ provider: new MockLLMProvider(), model: 'mock-1', timeoutMs: 10_000, maxRetries: 0, onUsage: (e) => repos.usage.record(e) });
-const app = createApplication({ repos, interpreter: new IdeaInterpreter(gateway), discoveryAi: createDiscoveryAi(gateway), architectureAi: createArchitectureAi(gateway), implementationAi: createImplementationAi(gateway), assistantAi: createAssistantAi(gateway), changeAi: createChangeAi(gateway), queue: { enqueue: async () => null }, logger: noopLogger });
+const app = createApplication({ repos, interpreter: new IdeaInterpreter(gateway), discoveryAi: createDiscoveryAi(gateway), architectureAi: createArchitectureAi(gateway), implementationAi: createImplementationAi(gateway), assistantAi: createAssistantAi(gateway), changeAi: createChangeAi(gateway), queue: { enqueue: async () => null }, logger: noopLogger, fetcher: new FixtureDocumentFetcher({ allow: false }), embedder: new HashingEmbeddingProvider() });
 
 const { user } = await app.users.provision({ externalId: 'dev:demo@pitch2plan.dev', email: 'demo@pitch2plan.dev', name: 'Demo User' });
 const ctx = { userId: user.id, requestId: 'seed' };

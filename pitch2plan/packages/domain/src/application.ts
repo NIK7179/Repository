@@ -4,11 +4,14 @@ import type {
 import { canWrite, requireProjectAccess } from './authorization';
 import { DomainError } from './errors';
 import type { Logger } from './logger';
-import type { ArchitectureAiPort, AssistantAiPort, ChangeAiPort, DiscoveryAiPort, ImplementationAiPort, ExternalIdentity, IdeaInterpreterPort, JobQueue, Repositories } from './ports';
+import type { DocumentFetcher, EmbeddingProvider, ArchitectureAiPort, AssistantAiPort, ChangeAiPort, DiscoveryAiPort, ImplementationAiPort, ExternalIdentity, IdeaInterpreterPort, JobQueue, Repositories } from './ports';
 import { createArchitectureService, DEFAULT_ARCHITECTURE_CONFIG, type ArchitectureConfig } from './architecture';
 import { createAssistantService } from './assistant';
 import { createChangeService, DEFAULT_CHANGE_CONFIG, type ChangeConfig } from './change';
 import { createImplementationService, DEFAULT_IMPLEMENTATION_CONFIG, type ImplementationConfig } from './implementation';
+import { createIngestionService, type KnowledgeConfig } from './knowledge';
+import { createKnowledgeRetriever } from './knowledge-retrieval';
+import { createKnowledgeAccessService } from './knowledge-access';
 import { createBriefService } from './brief';
 import { createDiscoveryService, type RequestContext } from './discovery';
 import { DEFAULT_DISCOVERY_CONFIG, type DiscoveryConfig } from './shared';
@@ -17,13 +20,14 @@ export type { RequestContext };
 export interface ApplicationDeps {
   repos: Repositories; interpreter: IdeaInterpreterPort; discoveryAi: DiscoveryAiPort; architectureAi: ArchitectureAiPort; implementationAi: ImplementationAiPort; assistantAi: AssistantAiPort; changeAi: ChangeAiPort; queue: JobQueue; logger: Logger;
   discoveryConfig?: Partial<DiscoveryConfig>; architectureConfig?: Partial<ArchitectureConfig>; implementationConfig?: Partial<ImplementationConfig>; changeConfig?: Partial<ChangeConfig>;
+  fetcher: DocumentFetcher; embedder: EmbeddingProvider; knowledgeConfig?: Partial<KnowledgeConfig>;
 }
 
 function isAiError(e: unknown): e is { code: string; message: string; details?: unknown } {
   return !!e && typeof e === 'object' && typeof (e as { code?: unknown }).code === 'string' && (e as { code: string }).code.startsWith('AI_');
 }
 
-export function createApplication({ repos, interpreter, discoveryAi, architectureAi, implementationAi, assistantAi, changeAi, queue, logger, discoveryConfig, architectureConfig, implementationConfig, changeConfig }: ApplicationDeps) {
+export function createApplication({ repos, interpreter, discoveryAi, architectureAi, implementationAi, assistantAi, changeAi, queue, logger, discoveryConfig, architectureConfig, implementationConfig, changeConfig, fetcher, embedder, knowledgeConfig }: ApplicationDeps) {
   const config: DiscoveryConfig = { ...DEFAULT_DISCOVERY_CONFIG, ...discoveryConfig };
   const discovery = createDiscoveryService({ repos, ai: discoveryAi, logger, config });
   const briefs = createBriefService({ repos, ai: discoveryAi, logger, discovery });
@@ -33,7 +37,10 @@ export function createApplication({ repos, interpreter, discoveryAi, architectur
   const architecture = createArchitectureService({ repos, ai: architectureAi, queue, logger, config: { ...DEFAULT_ARCHITECTURE_CONFIG, ...architectureConfig } });
 
   const implementation = createImplementationService({ repos, ai: implementationAi, queue, logger, config: { ...DEFAULT_IMPLEMENTATION_CONFIG, ...implementationConfig } });
-  const assistant = createAssistantService({ repos, ai: assistantAi, logger });
+  const ingestion = createIngestionService({ repos, fetcher, embedder, queue, logger, config: knowledgeConfig });
+  const retriever = createKnowledgeRetriever({ repos, embedder, config: { staleDays: ingestion.config.staleDays } });
+  const knowledge = { ...ingestion, retriever, access: createKnowledgeAccessService({ repos, ingestion, retriever }) };
+  const assistant = createAssistantService({ repos, ai: assistantAi, logger, knowledge });
   const change = createChangeService({ repos, ai: changeAi, architectureAi, implementation, queue, logger, config: { ...DEFAULT_CHANGE_CONFIG, ...changeConfig } });
 
   return {
@@ -43,6 +50,7 @@ export function createApplication({ repos, interpreter, discoveryAi, architectur
     implementation,
     assistant,
     change,
+    knowledge,
     config,
     users: {
       provision: (identity: ExternalIdentity) => repos.users.provision(identity),

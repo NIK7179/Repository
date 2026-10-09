@@ -16,6 +16,10 @@ const env = z.object({
   LLM_MAX_RETRIES: z.coerce.number().int().min(0).max(5).default(2),
   ARCH_MAX_REPAIRS: z.coerce.number().int().min(0).max(5).default(2),
   ARCH_STALE_RUN_MS: z.coerce.number().int().positive().default(600_000),
+  KNOWLEDGE_FETCHER: z.enum(['http', 'fixture', 'off']).default('http'),
+  ALLOW_FIXTURE_DOCS: z.enum(['true', 'false']).default('false'),
+  KNOWLEDGE_STALE_DAYS: z.coerce.number().int().min(1).default(30),
+  KNOWLEDGE_REFRESH_DAYS: z.coerce.number().int().min(1).default(7),
   DISCOVERY_MAX_ROUNDS: z.coerce.number().int().min(1).max(10).default(3),
   DISCOVERY_MAX_QUESTIONS: z.coerce.number().int().min(1).max(10).default(6),
 }).superRefine((e, ctx) => { if (e.AI_PROVIDER === 'anthropic' && !e.ANTHROPIC_API_KEY) ctx.addIssue({ code: 'custom', path: ['ANTHROPIC_API_KEY'], message: 'Required when AI_PROVIDER=anthropic' }); }).parse(process.env);
@@ -31,6 +35,7 @@ const rt = composeRuntime({
   architecture: { maxRepairs: env.ARCH_MAX_REPAIRS, staleRunMs: env.ARCH_STALE_RUN_MS },
   implementation: { maxRepairs: env.ARCH_MAX_REPAIRS, staleRunMs: env.ARCH_STALE_RUN_MS },
   change: { maxRepairs: env.ARCH_MAX_REPAIRS, staleRunMs: env.ARCH_STALE_RUN_MS },
+  knowledge: { fetcher: env.KNOWLEDGE_FETCHER, allowFixtures: env.ALLOW_FIXTURE_DOCS === 'true', config: { staleDays: env.KNOWLEDGE_STALE_DAYS, refreshDays: env.KNOWLEDGE_REFRESH_DAYS } },
 }, queue);
 
 const worker = await queue.startWorker(rt.app);

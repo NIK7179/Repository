@@ -29,7 +29,7 @@ export interface AuditEventInput {
 }
 
 /** Persistence ports. Implemented by packages/db; the domain never imports Prisma. */
-export interface Repositories extends DiscoveryRepositories, ArchitectureRepositories, ImplementationRepositories, ChangeRepositories {
+export interface Repositories extends DiscoveryRepositories, ArchitectureRepositories, ImplementationRepositories, ChangeRepositories, KnowledgeRepositories {
   users: {
     findById(id: string): Promise<UserRecord | null>;
     /** Idempotent: creates the user, a personal workspace and an OWNER membership on first sight. */
@@ -330,7 +330,7 @@ export interface ImplementationAiPort {
 }
 export type AssistantStreamEvent = { type: 'delta'; text: string } | { type: 'done'; ai: AiMeta };
 export interface AssistantAiPort {
-  stream(input: { context: { workspaceId: string; projectId: string; userId: string }; projectContext: unknown; history: Array<{ role: 'user' | 'assistant'; content: string }>; question: string; signal?: AbortSignal }): AsyncIterable<AssistantStreamEvent>;
+  stream(input: { context: { workspaceId: string; projectId: string; userId: string }; projectContext: unknown; history: Array<{ role: 'user' | 'assistant'; content: string }>; question: string; /** Rendered <retrieved_documentation> block (untrusted reference data), if any. */ documents?: string; signal?: AbortSignal }): AsyncIterable<AssistantStreamEvent>;
 }
 
 
@@ -412,4 +412,91 @@ export interface ChangeAiPort {
   analyze(input: ChangeAnalysisInput): Promise<AiResult<ChangeAnalysis>>;
   plan(input: ChangePlanInput): Promise<AiResult<ChangePlan>>;
   review(input: ReviewInput): Promise<AiResult<ReviewOutput>>;
+}
+
+
+// ====================================================================== Phase 6: trusted knowledge
+import type { SourceType, GroundingStatus, IngestionState } from '@pitch2plan/schemas';
+
+export const KNOWLEDGE_INGEST_JOB = 'knowledge.ingest';
+export const KNOWLEDGE_REFRESH_JOB = 'knowledge.refresh';
+export const KNOWLEDGE_REINDEX_JOB = 'knowledge.reindex';
+export const KNOWLEDGE_JOBS = [KNOWLEDGE_INGEST_JOB, KNOWLEDGE_REFRESH_JOB, KNOWLEDGE_REINDEX_JOB] as const;
+
+export interface KnowledgeSourceRecord {
+  id: string; technologySlug: string; name: string; sourceType: SourceType; provider: string; baseUrl: string; allowedDomains: string[];
+  trustLevel: number; enabled: boolean; lastIngestedAt: Date | null;
+}
+export interface IngestionRunRecord {
+  id: string; sourceId: string; kind: 'INGEST' | 'REFRESH' | 'REINDEX'; status: IngestionState; attempt: number; failureCode: string | null; failureMessage: string | null;
+  retryable: boolean; jobId: string | null; stats: Record<string, unknown> | null; createdAt: Date; startedAt: Date | null; heartbeatAt: Date | null; finishedAt: Date | null;
+}
+export interface EmbeddingMeta { provider: string; model: string; dimensions: number; version: string }
+export interface ChunkInput { ordinal: number; sectionTitle: string | null; text: string; tokenEstimate: number; injectionScore: number; embedding: number[] }
+export interface SaveVersionInput {
+  sourceId: string; technologySlug: string; canonicalUrl: string; title: string; contentHash: string; productVersion: string | null;
+  publishedAt: Date | null; sourceUpdatedAt: Date | null; retrievedAt: Date; injectionScore: number; embedding: EmbeddingMeta; chunks: ChunkInput[];
+}
+export interface KnowledgeCandidate {
+  chunkId: string; documentVersionId: string; documentId: string; technologySlug: string; sectionTitle: string | null; text: string; tokenEstimate: number; injectionScore: number;
+  embedding: number[]; ftsRank: number; documentTitle: string; url: string; productVersion: string | null; retrievedAt: Date; checkedAt: Date;
+  sourceTitle: string; sourceType: SourceType; provider: string; trustLevel: number;
+}
+export interface KnowledgeDocumentRow {
+  documentId: string; versionId: string; technologySlug: string; title: string; url: string; productVersion: string | null; retrievedAt: Date; checkedAt: Date;
+  sourceTitle: string; sourceType: SourceType; provider: string; trustLevel: number; chunkCount: number;
+}
+export interface CitationInput { id: string; projectId: string; userId: string; messageId?: string | null; n: number; chunkId: string; documentVersionId: string; snapshot: Record<string, unknown> }
+export interface CitationRecord extends CitationInput { createdAt: Date }
+export interface RetrievalRunInput {
+  projectId?: string | null; userId: string; scope: string; technologySlugs: string[]; candidateCount: number; selectedCount: number; durationMs: number;
+  technologyMatch: boolean; versionMatch: string; groundingStatus: GroundingStatus; citationCount: number;
+}
+
+export interface KnowledgeRepositories {
+  knowledge: {
+    upsertSource(input: Omit<KnowledgeSourceRecord, 'id' | 'lastIngestedAt'>): Promise<KnowledgeSourceRecord>;
+    findSourceBySlug(slug: string): Promise<KnowledgeSourceRecord | null>;
+    findSource(id: string): Promise<KnowledgeSourceRecord | null>;
+    listSources(): Promise<KnowledgeSourceRecord[]>;
+    /** A NEW version is created only when the content hash differs from the active version. Unchanged content only bumps `checkedAt`. Superseded versions lose their chunks. */
+    saveVersion(input: SaveVersionInput): Promise<{ documentId: string; versionId: string; versionNumber: number; outcome: 'CREATED' | 'NEW_VERSION' | 'UNCHANGED' }>;
+    markDocumentsRemoved(sourceId: string, keepUrls: string[]): Promise<number>;
+    markSourceIngested(sourceId: string, at: Date): Promise<void>;
+    /** Full-text candidates only: a chunk that shares no word with the query is never a candidate. */
+    searchCandidates(input: { technologySlugs: string[]; terms: string[]; limit: number }): Promise<KnowledgeCandidate[]>;
+    listDocuments(technologySlugs: string[], limit: number): Promise<KnowledgeDocumentRow[]>;
+    countActiveDocuments(technologySlug: string): Promise<number>;
+    getChunk(id: string): Promise<(KnowledgeCandidate) | null>;
+    // ingestion runs
+    createRun(input: { sourceId: string; kind: IngestionRunRecord['kind']; requestedById?: string | null }): Promise<{ run: IngestionRunRecord; created: boolean }>;
+    attachJob(runId: string, jobId: string): Promise<void>;
+    findRun(id: string): Promise<IngestionRunRecord | null>;
+    latestRun(sourceId: string): Promise<IngestionRunRecord | null>;
+    /** Compare-and-set PENDING→RUNNING (or RUNNING with an expired heartbeat). Returns null if another worker owns it. */
+    claimRun(id: string, staleBefore: Date): Promise<IngestionRunRecord | null>;
+    heartbeat(id: string): Promise<void>;
+    finishRun(id: string, outcome: { ok: true; stats: Record<string, unknown> } | { ok: false; code: string; message: string; retryable: boolean }): Promise<boolean>;
+    failStaleRuns(staleBefore: Date): Promise<IngestionRunRecord[]>;
+    sourcesDueForRefresh(olderThan: Date): Promise<KnowledgeSourceRecord[]>;
+    // re-indexing
+    chunksNeedingEmbedding(sourceId: string, currentVersion: string, limit: number): Promise<Array<{ id: string; text: string; sectionTitle: string | null }>>;
+    setEmbeddings(items: Array<{ id: string; embedding: number[] }>, meta: EmbeddingMeta): Promise<void>;
+    // citations & observability
+    saveCitations(items: CitationInput[]): Promise<void>;
+    getCitation(id: string): Promise<CitationRecord | null>;
+    listCitations(ids: string[]): Promise<CitationRecord[]>;
+    recordRetrieval(input: RetrievalRunInput): Promise<void>;
+    overview(): Promise<{ sources: Array<KnowledgeSourceRecord & { documents: number; chunks: number; lastRun: IngestionRunRecord | null; embeddingModels: string[] }>; retrievals: { total: number; grounded: number } }>;
+  };
+}
+
+export interface FetchedDocument { finalUrl: string; contentType: string; body: string; lastModified: Date | null }
+/** Fetches ONE page. Implementations must enforce the allow-list on the URL and on every redirect hop. */
+export interface DocumentFetcher { fetch(url: string, opts: { allowedDomains: string[]; signal?: AbortSignal }): Promise<FetchedDocument> }
+export interface EmbeddingProvider {
+  readonly meta: EmbeddingMeta;
+  /** True only for a genuinely semantic model. A lexical/hashing embedder must say false: it can re-rank but never prove relevance. */
+  readonly semantic: boolean;
+  embed(texts: string[]): Promise<number[][]>;
 }

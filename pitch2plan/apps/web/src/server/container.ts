@@ -23,6 +23,7 @@ export function getContainer(): Container {
     architecture: { maxRepairs: env.ARCH_MAX_REPAIRS, staleRunMs: env.ARCH_STALE_RUN_MS },
     implementation: { maxRepairs: env.ARCH_MAX_REPAIRS, staleRunMs: env.ARCH_STALE_RUN_MS },
     change: { maxRepairs: env.ARCH_MAX_REPAIRS, staleRunMs: env.ARCH_STALE_RUN_MS },
+    knowledge: { fetcher: env.KNOWLEDGE_FETCHER, allowFixtures: env.ALLOW_FIXTURE_DOCS === 'true', config: { staleDays: env.KNOWLEDGE_STALE_DAYS, refreshDays: env.KNOWLEDGE_REFRESH_DAYS } },
   }, queue);
   const c: Container = { ...rt, queue, auth: new DevAuthProvider(env.AUTH_SECRET), rateLimiter: new MemoryRateLimiter(env.RATE_LIMIT_SCALE), authSecret: env.AUTH_SECRET };
   g.__p2p = c;

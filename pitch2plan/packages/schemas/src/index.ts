@@ -9,3 +9,5 @@ export * from './progress';
 export * from './assistant';
 export * from './change';
 export * from './migration';
+export * from './knowledge';
+export * from './grounding';

@@ -1,6 +1,6 @@
-import { AnthropicLLMProvider, IdeaInterpreter, LLMGateway, MockLLMProvider, createArchitectureAi, createAssistantAi, createChangeAi, createDiscoveryAi, createImplementationAi, type LLMProvider } from '@pitch2plan/ai';
+import { AnthropicLLMProvider, IdeaInterpreter, LLMGateway, MockLLMProvider, createArchitectureAi, createAssistantAi, createChangeAi, createDiscoveryAi, createImplementationAi, HashingEmbeddingProvider, type LLMProvider } from '@pitch2plan/ai';
 import { createPrismaClient, createRepositories, type PrismaClient } from '@pitch2plan/db';
-import { createApplication, type Application, type ArchitectureConfig, type DiscoveryConfig, type ChangeConfig, type ImplementationConfig, type JobQueue, type Logger, type Repositories } from '@pitch2plan/domain';
+import { FetchError, FixtureDocumentFetcher, HttpDocumentFetcher, createApplication, type DocumentFetcher, type KnowledgeConfig, type Application, type ArchitectureConfig, type DiscoveryConfig, type ChangeConfig, type ImplementationConfig, type JobQueue, type Logger, type Repositories } from '@pitch2plan/domain';
 
 export interface RuntimeConfig {
   databaseUrl: string;
@@ -9,6 +9,8 @@ export interface RuntimeConfig {
   architecture?: Partial<ArchitectureConfig>;
   implementation?: Partial<ImplementationConfig>;
   change?: Partial<ChangeConfig>;
+  /** fetcher: http = real allow-listed fetching; fixture = labelled test pages (needs allowFixtures); off = nothing is fetched. */
+  knowledge?: { fetcher?: 'http' | 'fixture' | 'off'; allowFixtures?: boolean; config?: Partial<KnowledgeConfig> };
   logger: Logger;
 }
 export interface Runtime { prisma: PrismaClient; repos: Repositories; app: Application; gateway: LLMGateway }
@@ -26,9 +28,13 @@ export function composeRuntime(cfg: RuntimeConfig, queue: JobQueue): Runtime {
     provider, model: live ? cfg.ai.model : 'mock-1', timeoutMs: cfg.ai.timeoutMs, maxRetries: cfg.ai.maxRetries, logger: cfg.logger,
     debugLogPrompts: !!cfg.ai.debugLogPrompts, onUsage: (e) => repos.usage.record(e),
   });
+  const kf = cfg.knowledge?.fetcher ?? 'http';
+  const fetcher: DocumentFetcher = kf === 'fixture' ? new FixtureDocumentFetcher({ allow: !!cfg.knowledge?.allowFixtures })
+    : kf === 'off' ? { fetch: async () => { throw new FetchError('NETWORK_ERROR', 'Documentation fetching is turned off.'); } } : new HttpDocumentFetcher();
   const app = createApplication({
     repos, interpreter: new IdeaInterpreter(gateway), discoveryAi: createDiscoveryAi(gateway), architectureAi: createArchitectureAi(gateway), implementationAi: createImplementationAi(gateway), assistantAi: createAssistantAi(gateway), changeAi: createChangeAi(gateway), queue,
     logger: cfg.logger, discoveryConfig: cfg.discovery, architectureConfig: cfg.architecture, implementationConfig: cfg.implementation, changeConfig: cfg.change,
+    fetcher, embedder: new HashingEmbeddingProvider(), knowledgeConfig: cfg.knowledge?.config,
   });
   return { prisma, repos, app, gateway };
 }

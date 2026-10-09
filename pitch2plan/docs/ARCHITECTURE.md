@@ -1,4 +1,4 @@
-# Architecture (Phase 5)
+# Architecture (Phase 6)
 
 Pitch2Plan is a **modular monolith**: one Next.js deployable, plus a reserved worker. Boundaries are enforced by
 package dependencies so modules can be extracted later if scale demands it (see ADR-001).
@@ -142,6 +142,32 @@ Request (user, assistant answer, or review finding)  ->  ChangeProposal bound to
 * **Idempotency in layers.** One approved proposal produces at most one architecture version (unique `sourceProposalId`), one CHANGE run (unique `proposalId`; one ACTIVE change run per project via a partial unique index), and one plan chain. A vanished worker is failed by the sweeper and the SAME run is retried.
 * **Review and failure modes.** A production readiness review (13 areas) stores findings with the version it reviewed; a finding that needs an architecture change can create a proposal with `reviewFindingId`. "What happens if this fails?" is computed from the graph (downstream/upstream, critical paths, existing and missing mitigation).
 
+## Trusted knowledge and grounded guidance (Phase 6)
+
+```
+registry (TECH_DOCS: slug, aliases, allowed hosts, seed URLs)
+   │  validateSourceUrl (https, no creds/ports/IPs, host == allowed or subdomain; re-checked on every redirect hop and on the final URL)
+   ▼
+ingestion job (queue → worker; compare-and-set claim; one active run per source)
+   fetch → extract text → chunk → injection score → embed → saveVersion (new version ONLY if the content hash changed)
+   ▼
+KnowledgeSource / Document / DocumentVersion / Chunk (tsvector + embedding)      Citation (append-only snapshot)   RetrievalRun (no question text)
+   ▲
+retrieval (per question: scope → technologies → FTS candidates → hybrid rank → RELEVANCE GATE → budget → quarantine)
+   ▼
+assistant: <retrieved_documentation> (neutralized, numbered, untrusted) → model proposes claims + [n] markers
+   ▼
+validateClaims / deriveGrounding  ← the SERVER decides: numbers exist? passage supports the claim? project refs real? → status + labels
+```
+
+* **Package boundaries.** Pure rules (registry, URL validation, chunking, injection scoring, ranking, relevance gate, claim validation, grounding) live in `packages/schemas`. Ingestion, retrieval and the project-scoped documentation service are in `packages/domain` behind ports (`DocumentFetcher`, `EmbeddingProvider`, `KnowledgeRepositories`). SQL is only in `packages/db`.
+* **Grounding is a property of the server.** The model returns `claims` (text, proposed label, citation numbers, project refs). The server drops numbers that were not retrieved, drops citations whose passage does not support the claim (shared topical words, identity words excluded), downgrades unsupported labels to `UNVERIFIED`, checks project refs against real ADR/REQ/task codes, and derives the status. A model-supplied status, URL or citation id is never read. Commands and code blocks are checked the same way; placeholders such as `<REGION>` are surfaced as assumptions.
+* **Relevance is not provenance.** A chunk must share real topical words with the question (two when the question has two or more) or clear a threshold from a genuinely semantic embedder. The bundled local embedder is lexical hashing (`semantic=false`): it can re-rank but never prove relevance. See ADR-012.
+* **Untrusted text.** Retrieved text is neutralized (angle brackets, role prefixes), numbered, wrapped in a block the prompt declares to be data, and chunks scoring as instruction-like are quarantined and never reach the model.
+* **Citations are snapshots** written before the message that references them; refreshing a document never rewrites an old answer.
+* **Versions.** The version in the architecture node configuration is compared with the documentation's stated version; a mismatch or an unstated version is reported, never silently ignored.
+* **Operations.** Jobs: `knowledge.ingest`, `knowledge.refresh`, `knowledge.reindex`; an hourly sweep schedules due refreshes and recovers stale runs. Queue outage marks the run `FAILED/retryable`; a failed on-demand ingestion backs off; manual refresh has a cooldown. `/api/knowledge/status` (diagnostics) is off unless `KNOWLEDGE_DIAGNOSTICS=true`.
+
 ## Security
 
 Server-side authorization on every project operation; workspace ids from the browser are verified against memberships;
@@ -156,6 +182,7 @@ The domain provisions the internal `User` + personal workspace from that identit
 In production the dev provider refuses to start unless `ALLOW_DEV_AUTH=true`.
 
 ## Known limitations
+* **Phase 6 limits.** The seed URLs were written from knowledge of the vendors' documentation layout and were NOT fetched from the live sites in the build environment (no outbound HTTPS): run `npm run eval:grounding` where the network is available and fix any URL that moved. All automated tests use clearly labelled paraphrased fixture pages. Retrieval uses Postgres full-text search plus a lexical hashing embedder: there is no pgvector and no semantic embedding model, so recall for paraphrased questions is limited (the relevance gate prefers returning nothing to returning something wrong). Live Claude answer quality against real documentation is unverified. `SYSTEM_VERIFIED` is still never set: documentation is not verification of the user's environment. Playwright specs exist but were not executed.
 * **Phase 5 limits.** Live Claude quality of change analysis and planning is unverified (run `npm run eval:change`). Proposal sources `IMPLEMENTATION_DISCOVERY`, `FUTURE_COST_OPTIMIZATION` and `FUTURE_SECURITY_REVIEW` are reserved, not built. No team approval workflow. The diff canvas shows the new graph plus removed components, not a side-by-side. Task mapping is deterministic and conservative: it prefers asking you to re-confirm over claiming work is still valid. Nothing executes in a cloud account or repository.
 * **Phase 4 limits.** Live Claude plan and answer quality is unverified (run `npm run eval:implementation`). Only the current READY architecture is planned; plan V2 for a later architecture version is not built. Technology icons are still monogram badges. Documentation grounding/RAG is not built (links are unverified suggestions). Commands and code are shown, never executed or written back. Completion is user-confirmed only. The assistant cannot change the architecture (change proposals come later). Conversations are private per user (no team sharing yet).
 

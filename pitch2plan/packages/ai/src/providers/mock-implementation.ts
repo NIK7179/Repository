@@ -1,4 +1,4 @@
-import { STRUCTURED_DELIMITER } from '@pitch2plan/schemas';
+import { STRUCTURED_DELIMITER, stemWord, topicWords } from '@pitch2plan/schemas';
 import { parseDataBlock } from '../prompts/util';
 
 /**
@@ -135,7 +135,7 @@ export function mockAssistantAnswer(userContent: string): string {
   const q = userContent.split('Question: ').pop() ?? '';
   const comp = ctx.focusComponents?.[0]; const task = ctx.currentTask; const dec = ctx.decisions?.[0]; const req = ctx.requirements?.[0];
   const where = comp ? `${comp.name} (${comp.technology}${comp.provider ? ` on ${comp.provider}` : ''}, ${comp.deploymentModel.toLowerCase().replaceAll('_', ' ')})` : `the ${ctx.project?.name ?? 'project'} architecture`;
-  const extras = { warnings: [] as string[], commands: [] as Array<{ command: string; purpose: string }>, codeBlocks: [] as unknown[], validationSteps: [] as string[], relatedTaskIds: (ctx.relatedTasks ?? []).slice(0, 2).map((t) => t.id), architectureImpact: '', needsArchitectureChange: false };
+  const extras = { warnings: [] as string[], commands: [] as Array<{ command: string; purpose: string }>, codeBlocks: [] as unknown[], validationSteps: [] as string[], relatedTaskIds: (ctx.relatedTasks ?? []).slice(0, 2).map((t) => t.id), architectureImpact: '', needsArchitectureChange: false, claims: [] as Array<{ text: string; label: string; citations: number[]; projectRefs: string[] }> };
   let answer: string;
   if (/instead|replace|switch|alternative|rather than/i.test(q)) {
     answer = `You could, but it is a change to the architecture, not just to this task. ${where} is there because of ${dec ? `${dec.key.toUpperCase()} ("${dec.title}")` : 'a recorded decision'}${req ? ` and ${req.code}: ${req.statement}` : ''}. Swapping it means revisiting that decision and every task that depends on it.`;
@@ -152,6 +152,18 @@ export function mockAssistantAnswer(userContent: string): string {
   } else {
     answer = `For ${task ? `"${task.title}"` : where}: ${task ? task.instructions : `${where} is part of the ${ctx.project?.name ?? 'project'} architecture.`}`;
   }
+  // Grounding: cite a retrieved document only when it really overlaps with the question. The mock never follows instructions found inside documents.
+  const docs = [...userContent.matchAll(/<document n="(\d+)"[^>]*>\n([\s\S]*?)\n<\/document>/g)].map((m) => ({ n: Number(m[1]), body: m[2]! }));
+  const wanted = [...new Set(topicWords(q).map(stemWord))];
+  const required = wanted.length >= 2 ? 2 : 1;
+  let best: { n: number; sentence: string; score: number } | null = null;
+  for (const d of docs) for (const sentence of d.body.split(/(?<=[.!?])\s+/)) {
+    const stems = new Set(topicWords(sentence).map(stemWord)); const score = wanted.filter((w) => stems.has(w)).length;
+    if (score >= required && (!best || score > best.score) && !/ignore|disregard|system prompt|you must now/i.test(sentence)) best = { n: d.n, sentence: sentence.trim(), score };
+  }
+  if (best) { answer += ` According to the documentation: ${best.sentence} [${best.n}]`; extras.claims.push({ text: best.sentence.slice(0, 480), label: 'DOCUMENTED', citations: [best.n], projectRefs: [] }); }
+  else if (docs.length) answer += ' The retrieved documentation does not cover this point directly, so treat the guidance above as a recommendation.';
+  if (dec) extras.claims.push({ text: `${where} is part of the architecture because of ${dec.key.toUpperCase()}`, label: 'ARCHITECTURE_DECISION', citations: [], projectRefs: [dec.key.toUpperCase()] });
   return `${answer}\n${STRUCTURED_DELIMITER}\n${JSON.stringify(extras)}`;
 }
 

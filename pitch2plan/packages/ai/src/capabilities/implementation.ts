@@ -3,7 +3,7 @@ import {
   type AiMeta, type AiResult, type ImplContext, type ImplCritiqueInput, type ImplCriticOutput, type ImplPlanInput, type ImplRepairInput, type ImplRepairPatch, type ImplementationPlan,
 } from '@pitch2plan/schemas';
 import type { LLMGateway } from '../gateway';
-import { IMPLEMENTATION_CRITIC_V1, IMPLEMENTATION_PLANNER_V1, IMPLEMENTATION_REPAIRER_V1, TASK_ASSISTANT_V1, buildAssistantUser } from '../prompts/implementation';
+import { IMPLEMENTATION_CRITIC_V1, IMPLEMENTATION_PLANNER_V1, IMPLEMENTATION_REPAIRER_V1, TASK_ASSISTANT_V2, buildAssistantUser } from '../prompts/implementation';
 import { run } from './discovery';
 import type { AssistantStreamEventLike } from './shared';
 
@@ -50,12 +50,12 @@ export function createImplementationAi(gateway: LLMGateway) {
 export function createAssistantAi(gateway: LLMGateway, opts: { timeoutMs?: number } = {}) {
   const timeoutMs = opts.timeoutMs ?? 120_000;
   return {
-    async *stream(input: { context: { workspaceId: string; projectId: string; userId: string }; projectContext: unknown; history: Array<{ role: 'user' | 'assistant'; content: string }>; question: string; signal?: AbortSignal }): AsyncGenerator<AssistantStreamEventLike> {
-      const messages = [...input.history, { role: 'user' as const, content: buildAssistantUser(input.projectContext, input.question) }];
-      const meta = { capability: 'TASK_ASSISTANT', promptId: TASK_ASSISTANT_V1.id, promptVersion: TASK_ASSISTANT_V1.version, ...input.context };
-      for await (const chunk of gateway.streamTracked({ system: TASK_ASSISTANT_V1.system, messages, maxTokens: 3000, temperature: 0.3, timeoutMs }, meta, input.signal)) {
+    async *stream(input: { context: { workspaceId: string; projectId: string; userId: string }; projectContext: unknown; history: Array<{ role: 'user' | 'assistant'; content: string }>; question: string; documents?: string; signal?: AbortSignal }): AsyncGenerator<AssistantStreamEventLike> {
+      const messages = [...input.history, { role: 'user' as const, content: buildAssistantUser(input.projectContext, input.question, input.documents) }];
+      const meta = { capability: 'TASK_ASSISTANT', promptId: TASK_ASSISTANT_V2.id, promptVersion: TASK_ASSISTANT_V2.version, ...input.context };
+      for await (const chunk of gateway.streamTracked({ system: TASK_ASSISTANT_V2.system, messages, maxTokens: 3000, temperature: 0.3, timeoutMs }, meta, input.signal)) {
         if (chunk.type === 'delta') yield { type: 'delta', text: chunk.text };
-        else yield { type: 'done', ai: { promptId: TASK_ASSISTANT_V1.id, promptVersion: TASK_ASSISTANT_V1.version, provider: chunk.result.provider, model: chunk.result.model, inputTokens: chunk.result.usage.inputTokens, outputTokens: chunk.result.usage.outputTokens, repaired: false } as AiMeta };
+        else yield { type: 'done', ai: { promptId: TASK_ASSISTANT_V2.id, promptVersion: TASK_ASSISTANT_V2.version, provider: chunk.result.provider, model: chunk.result.model, inputTokens: chunk.result.usage.inputTokens, outputTokens: chunk.result.usage.outputTokens, repaired: false } as AiMeta };
       }
     },
   };

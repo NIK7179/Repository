@@ -61,3 +61,17 @@ describe('architecture generation through real pg-boss', () => {
     } finally { await quick.prisma.$disconnect(); }
   });
 });
+
+describe('documentation ingestion through real pg-boss', () => {
+  it('queues an ingestion on demand, refuses a duplicate, and the worker indexes the documentation', async () => {
+    await h.prisma.$executeRawUnsafe('TRUNCATE "KnowledgeSource" CASCADE');
+    expect(await h.app.knowledge.ensureIndexed(['apache-kafka'])).toEqual({ 'apache-kafka': 'PREPARING' });
+    const run = (await h.app.knowledge.latestRunFor('apache-kafka'))!;
+    expect(await queue.enqueue('knowledge.ingest', { runId: run.id }, { singletonKey: run.id })).toBeNull(); // duplicate refused while queued
+    worker = await queue.startWorker(h.app, { sweepEveryMs: 60_000 }); // the previous test stopped the shared boss together with its worker
+    expect(run.jobId).toMatch(/^[0-9a-f-]{36}$/);
+    const done = await waitFor(async () => { const r = await h.app.knowledge.latestRunFor('apache-kafka'); return r && r.status === 'SUCCEEDED' ? r : false; });
+    expect(done.attempt).toBe(1);
+    expect(await h.app.knowledge.ensureIndexed(['apache-kafka'])).toEqual({ 'apache-kafka': 'READY' });
+  });
+});

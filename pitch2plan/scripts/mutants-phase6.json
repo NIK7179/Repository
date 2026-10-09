@@ -1,0 +1,473 @@
+[
+ {
+  "id": "untrusted-source-accepted",
+  "what": "allow-list host check removed",
+  "file": "packages/schemas/src/knowledge.ts",
+  "old": "if (!allowedDomains.some((a) => host === a || host.endsWith(`.${a}`))) return",
+  "new": "if (false) return",
+  "tests": [
+   "packages/schemas/test/knowledge-core.test.ts"
+  ]
+ },
+ {
+  "id": "https-only-removed",
+  "what": "https-only rule removed",
+  "file": "packages/schemas/src/knowledge.ts",
+  "old": "if (u.protocol !== 'https:') return",
+  "new": "if (false) return",
+  "tests": [
+   "packages/schemas/test/knowledge-core.test.ts"
+  ]
+ },
+ {
+  "id": "source-domain-suffix-trick",
+  "what": "subdomain match loosened to substring",
+  "file": "packages/schemas/src/knowledge.ts",
+  "old": "host === a || host.endsWith(`.${a}`)",
+  "new": "host.includes(a)",
+  "tests": [
+   "packages/schemas/test/knowledge-core.test.ts"
+  ]
+ },
+ {
+  "id": "redirect-hop-not-revalidated",
+  "what": "redirect hops not re-validated",
+  "file": "packages/domain/src/knowledge-fetcher.ts",
+  "old": "if (!check.ok) throw new FetchError(hop === 0 ? 'URL_NOT_ALLOWED' : 'REDIRECT_NOT_ALLOWED', check.reason);",
+  "new": "if (!check.ok && hop === 0) throw new FetchError('URL_NOT_ALLOWED', check.reason);\n      if (!check.ok) { return { finalUrl: current, contentType: 'text/html', body: '', lastModified: null }; }",
+  "tests": [
+   "test/unit/knowledge-fetcher.test.ts"
+  ]
+ },
+ {
+  "id": "final-url-trusted",
+  "what": "fetcher-reported final URL no longer validated",
+  "file": "packages/domain/src/knowledge.ts",
+  "old": "if (!finalCheck.ok) throw new FetchError('REDIRECT_NOT_ALLOWED', finalCheck.reason);",
+  "new": "",
+  "tests": [
+   "test/integration/knowledge-ingestion.test.ts"
+  ]
+ },
+ {
+  "id": "fixtures-always-on",
+  "what": "fixture fetcher runs without explicit permission",
+  "file": "packages/domain/src/knowledge-fixtures.ts",
+  "old": "if (!this.o.allow) throw",
+  "new": "if (false) throw",
+  "tests": [
+   "test/integration/knowledge-ingestion.test.ts"
+  ]
+ },
+ {
+  "id": "relevance-gate-removed",
+  "what": "relevance gate removed",
+  "file": "packages/schemas/src/knowledge.ts",
+  "old": "const relevant = (matched >= required && wanted.size > 0) ||",
+  "new": "const relevant = true ||",
+  "tests": [
+   "packages/schemas/test/knowledge-retrieval.test.ts",
+   "test/integration/knowledge-retrieval.test.ts"
+  ]
+ },
+ {
+  "id": "relevance-single-word",
+  "what": "one shared word is enough again",
+  "file": "packages/schemas/src/knowledge.ts",
+  "old": "const required = wanted.size >= 2 ? 2 : 1;",
+  "new": "const required = 1;",
+  "tests": [
+   "packages/schemas/test/knowledge-retrieval.test.ts"
+  ]
+ },
+ {
+  "id": "lexical-embedder-vouches",
+  "what": "semantic threshold applies to non-semantic embedders",
+  "file": "packages/domain/src/knowledge-retrieval.ts",
+  "old": "semanticRelevance: embedder.semantic ? cfg.semanticRelevance : null",
+  "new": "semanticRelevance: cfg.semanticRelevance",
+  "tests": [
+   "test/integration/knowledge-retrieval.test.ts",
+   "packages/schemas/test/knowledge-retrieval.test.ts"
+  ]
+ },
+ {
+  "id": "technology-filter-removed",
+  "what": "technology filter removed from candidate search",
+  "file": "packages/db/src/repositories-knowledge.ts",
+  "old": "WHERE c.\"technologySlug\" = ANY(${technologySlugs}::text[]) AND c.tsv",
+  "new": "WHERE c.tsv",
+  "tests": [
+   "test/integration/knowledge-model.test.ts",
+   "test/integration/knowledge-retrieval.test.ts"
+  ]
+ },
+ {
+  "id": "technology-score-removed",
+  "what": "technology match no longer scored",
+  "file": "packages/schemas/src/knowledge.ts",
+  "old": "const technology = c.technologySlug === primary ? 1 : q.technologySlugs.includes(c.technologySlug) ? 0.6 : 0;",
+  "new": "const technology = 0;",
+  "tests": [
+   "packages/schemas/test/knowledge-retrieval.test.ts"
+  ]
+ },
+ {
+  "id": "version-filter-removed",
+  "what": "version match no longer scored",
+  "file": "packages/schemas/src/knowledge.ts",
+  "old": "const version = versionNote === 'MATCHED' ? 1 : versionNote === 'MISMATCH' ? -1 : 0;",
+  "new": "const version = 0;",
+  "tests": [
+   "packages/schemas/test/knowledge-retrieval.test.ts"
+  ]
+ },
+ {
+  "id": "version-unknown-reported-matched",
+  "what": "unknown doc version reported as matched",
+  "file": "packages/schemas/src/knowledge.ts",
+  "old": "!docMajor ? 'DOC_VERSION_UNKNOWN'",
+  "new": "!docMajor ? 'MATCHED'",
+  "tests": [
+   "packages/schemas/test/knowledge-retrieval.test.ts",
+   "test/integration/knowledge-retrieval.test.ts"
+  ]
+ },
+ {
+  "id": "stale-flag-removed",
+  "what": "stale-source flag removed",
+  "file": "packages/schemas/src/knowledge.ts",
+  "old": "const stale = isStale(c.checkedAt, now, staleDays);",
+  "new": "const stale = false;",
+  "tests": [
+   "packages/schemas/test/knowledge-retrieval.test.ts",
+   "test/integration/knowledge-retrieval.test.ts"
+  ]
+ },
+ {
+  "id": "quarantine-removed",
+  "what": "instruction-like chunks no longer quarantined",
+  "file": "packages/schemas/src/knowledge.ts",
+  "old": "if (c.injectionScore >= budget.quarantineAt) { quarantined++; continue; }",
+  "new": "",
+  "tests": [
+   "packages/schemas/test/knowledge-retrieval.test.ts",
+   "test/integration/knowledge-retrieval.test.ts"
+  ]
+ },
+ {
+  "id": "delimiter-neutralization-removed",
+  "what": "retrieved text no longer neutralized",
+  "file": "packages/schemas/src/knowledge.ts",
+  "old": "s.replace(/</g, '\u2039').replace(/>/g, '\u203a').replace(/^\\s*(system|assistant|human|user)\\s*:/gim, '$1 -');",
+  "new": "s;",
+  "tests": [
+   "packages/schemas/test/knowledge-core.test.ts",
+   "packages/schemas/test/knowledge-retrieval.test.ts"
+  ]
+ },
+ {
+  "id": "budget-per-document-removed",
+  "what": "per-document cap removed",
+  "file": "packages/schemas/src/knowledge.ts",
+  "old": "if ((perDoc.get(c.documentId) ?? 0) >= budget.maxPerDocument) continue;",
+  "new": "",
+  "tests": [
+   "packages/schemas/test/knowledge-retrieval.test.ts"
+  ]
+ },
+ {
+  "id": "one-active-ingestion-index-removed",
+  "what": "one-active-ingestion unique index removed",
+  "file": "packages/db/prisma/migrations/20261010000000_knowledge/migration.sql",
+  "old": "CREATE UNIQUE INDEX \"KnowledgeIngestionRun_one_active_per_source\" ON \"KnowledgeIngestionRun\"(\"sourceId\") WHERE \"status\" IN ('PENDING','RUNNING');",
+  "new": "",
+  "tests": [
+   "test/integration/knowledge-model.test.ts",
+   "test/integration/knowledge-ingestion.test.ts"
+  ]
+ },
+ {
+  "id": "citation-append-only-removed",
+  "what": "citation append-only trigger removed",
+  "file": "packages/db/prisma/migrations/20261010000000_knowledge/migration.sql",
+  "old": "CREATE TRIGGER \"p2p_citation_append_only\" BEFORE UPDATE ON \"KnowledgeCitation\" FOR EACH ROW EXECUTE FUNCTION \"p2p_guard_citation\"();",
+  "new": "",
+  "tests": [
+   "test/integration/knowledge-model.test.ts"
+  ]
+ },
+ {
+  "id": "version-immutability-removed",
+  "what": "document-version immutability trigger removed",
+  "file": "packages/db/prisma/migrations/20261010000000_knowledge/migration.sql",
+  "old": "CREATE TRIGGER \"p2p_knowledge_version_immutable\" BEFORE UPDATE ON \"KnowledgeDocumentVersion\" FOR EACH ROW EXECUTE FUNCTION \"p2p_guard_knowledge_version\"();",
+  "new": "",
+  "tests": [
+   "test/integration/knowledge-model.test.ts"
+  ]
+ },
+ {
+  "id": "version-on-hash-change-removed",
+  "what": "unchanged content creates a new version",
+  "file": "packages/db/src/repositories-knowledge.ts",
+  "old": "if (active && active.contentHash === input.contentHash) return",
+  "new": "if (false) return",
+  "tests": [
+   "test/integration/knowledge-model.test.ts",
+   "test/integration/knowledge-ingestion.test.ts"
+  ]
+ },
+ {
+  "id": "superseded-chunks-kept",
+  "what": "superseded chunks stay in the index",
+  "file": "packages/db/src/repositories-knowledge.ts",
+  "old": "await tx.knowledgeChunk.deleteMany({ where: { documentVersionId: active.id } });",
+  "new": "",
+  "tests": [
+   "test/integration/knowledge-model.test.ts",
+   "test/integration/knowledge-ingestion.test.ts"
+  ]
+ },
+ {
+  "id": "claim-cas-removed",
+  "what": "run claim no longer compare-and-set",
+  "file": "packages/db/src/repositories-knowledge.ts",
+  "old": "where: { id, OR: [{ status: 'PENDING' }, { status: 'RUNNING', heartbeatAt: { lt: staleBefore } }] },",
+  "new": "where: { id },",
+  "tests": [
+   "test/integration/knowledge-model.test.ts",
+   "test/integration/knowledge-ingestion.test.ts"
+  ]
+ },
+ {
+  "id": "finish-cas-removed",
+  "what": "finishing a run no longer compare-and-set",
+  "file": "packages/db/src/repositories-knowledge.ts",
+  "old": "updateMany({ where: { id, status: 'RUNNING' }, data })",
+  "new": "updateMany({ where: { id }, data })",
+  "tests": [
+   "test/integration/knowledge-model.test.ts"
+  ]
+ },
+ {
+  "id": "ingestion-idempotency-removed",
+  "what": "duplicate ingest request creates another run",
+  "file": "packages/domain/src/knowledge.ts",
+  "old": "if (!created) return { run, created: false };",
+  "new": "if (false) return { run, created: false };",
+  "tests": [
+   "test/integration/knowledge-ingestion.test.ts"
+  ]
+ },
+ {
+  "id": "cp4-citation-number-trusted",
+  "what": "any cited number is trusted (no check against retrieval)",
+  "file": "packages/schemas/src/grounding.ts",
+  "old": "return !!s && citationSupportsClaim(c.text, `${s.title} ${s.text}`, input.identityTerms); });",
+  "new": "return true; });",
+  "tests": [
+   "packages/schemas/test/grounding.test.ts",
+   "test/integration/grounded-assistant.test.ts"
+  ]
+ },
+ {
+  "id": "cp4-relevance-of-citation-skipped",
+  "what": "a real citation is accepted without checking it supports the claim",
+  "file": "packages/schemas/src/grounding.ts",
+  "old": "return !!s && citationSupportsClaim(c.text, `${s.title} ${s.text}`, input.identityTerms);",
+  "new": "return !!s;",
+  "tests": [
+   "packages/schemas/test/grounding.test.ts",
+   "test/integration/grounded-assistant.test.ts"
+  ]
+ },
+ {
+  "id": "cp4-support-threshold-single-word",
+  "what": "one shared word counts as support",
+  "file": "packages/schemas/src/grounding.ts",
+  "old": "const required = wanted.length >= 2 ? 2 : 1;\n  return wanted.filter",
+  "new": "const required = 1;\n  return wanted.filter",
+  "tests": [
+   "packages/schemas/test/grounding.test.ts"
+  ]
+ },
+ {
+  "id": "cp4-documented-label-kept",
+  "what": "unsupported DOCUMENTED claim keeps its label",
+  "file": "packages/schemas/src/grounding.ts",
+  "old": "if (c.label === 'DOCUMENTED' && !citations.length) down(",
+  "new": "if (false) down(",
+  "tests": [
+   "packages/schemas/test/grounding.test.ts",
+   "test/integration/grounded-assistant.test.ts"
+  ]
+ },
+ {
+  "id": "cp4-project-ref-unchecked",
+  "what": "project labels accepted without a real reference",
+  "file": "packages/schemas/src/grounding.ts",
+  "old": "(c.label === 'PROJECT_FACT' || c.label === 'ARCHITECTURE_DECISION') && !projectRefs.length",
+  "new": "false",
+  "tests": [
+   "packages/schemas/test/grounding.test.ts",
+   "test/integration/grounded-assistant.test.ts"
+  ]
+ },
+ {
+  "id": "cp4-grounded-without-documentation",
+  "what": "GROUNDED reachable with zero documented claims",
+  "file": "packages/schemas/src/grounding.ts",
+  "old": "if (documented > 0) {",
+  "new": "if (documented >= 0) {",
+  "tests": [
+   "packages/schemas/test/grounding.test.ts",
+   "test/integration/grounded-assistant.test.ts"
+  ]
+ },
+ {
+  "id": "cp4-grounded-despite-unverified",
+  "what": "GROUNDED despite unverified statements",
+  "file": "packages/schemas/src/grounding.ts",
+  "old": "if (unverified === 0 && i.uncitedCommands === 0) status = 'GROUNDED';",
+  "new": "status = 'GROUNDED'; if (false) status = 'GROUNDED';",
+  "tests": [
+   "packages/schemas/test/grounding.test.ts",
+   "test/integration/grounded-assistant.test.ts"
+  ]
+ },
+ {
+  "id": "cp4-version-mismatch-ignored",
+  "what": "version mismatch does not lower the status",
+  "file": "packages/schemas/src/grounding.ts",
+  "old": "if (i.versionMatch === 'MISMATCH' && status === 'GROUNDED')",
+  "new": "if (false)",
+  "tests": [
+   "packages/schemas/test/grounding.test.ts"
+  ]
+ },
+ {
+  "id": "cp4-invalid-markers-kept",
+  "what": "dangling [n] markers stay in the answer",
+  "file": "packages/schemas/src/grounding.ts",
+  "old": "(valid.has(Number(n)) ? m : '')",
+  "new": "m",
+  "tests": [
+   "packages/schemas/test/grounding.test.ts",
+   "test/integration/grounded-assistant.test.ts"
+  ]
+ },
+ {
+  "id": "cp4-placeholders-not-flagged",
+  "what": "command placeholders not detected",
+  "file": "packages/schemas/src/grounding.ts",
+  "old": "for (const re of PLACEHOLDER) for",
+  "new": "for (const re of [] as RegExp[]) for",
+  "tests": [
+   "packages/schemas/test/grounding.test.ts",
+   "test/integration/grounded-assistant.test.ts"
+  ]
+ },
+ {
+  "id": "cp4-uncited-commands-ignored",
+  "what": "uncited state-changing commands do not affect the status",
+  "file": "packages/domain/src/assistant.ts",
+  "old": "const uncited = commands.filter((c) => !c.documented && c.risk !== 'READ_ONLY').length + codeBlocks.filter((b) => !b.citations.length).length;",
+  "new": "const uncited = 0;",
+  "tests": [
+   "test/integration/grounded-assistant.test.ts"
+  ]
+ },
+ {
+  "id": "cp4-command-citation-unverified",
+  "what": "a command may cite any number",
+  "file": "packages/domain/src/assistant.ts",
+  "old": "const cites = supported(`${c.purpose} ${c.command}`, c.citations);",
+  "new": "const cites = c.citations;",
+  "tests": [
+   "test/integration/grounded-assistant.test.ts"
+  ]
+ },
+ {
+  "id": "cp4-code-citation-unverified",
+  "what": "a code block may cite any number",
+  "file": "packages/domain/src/assistant.ts",
+  "old": "citations: supported(`${b.purpose} ${b.filename ?? ''}`, b.citations) }));",
+  "new": "citations: b.citations }));",
+  "tests": [
+   "test/integration/grounded-assistant.test.ts"
+  ]
+ },
+ {
+  "id": "cp4-documents-not-given-to-model",
+  "what": "retrieved documentation is not passed to the model",
+  "file": "packages/domain/src/assistant.ts",
+  "old": "history, question: input.message, documents, signal })",
+  "new": "history, question: input.message, documents: undefined, signal })",
+  "tests": [
+   "test/integration/grounded-assistant.test.ts"
+  ]
+ },
+ {
+  "id": "cp4-citations-from-all-retrieved",
+  "what": "every retrieved passage is shown as a citation even if unused",
+  "file": "packages/domain/src/assistant.ts",
+  "old": "retrieved.filter((c) => usedNumbers.has(c.n))",
+  "new": "retrieved",
+  "tests": [
+   "test/integration/grounded-assistant.test.ts"
+  ]
+ },
+ {
+  "id": "cp4-citation-auth-removed",
+  "what": "citations readable across workspaces",
+  "file": "packages/domain/src/knowledge-access.ts",
+  "old": "try { await requireProjectAccess(repos, ctx.userId, rec.projectId, 'read'); }",
+  "new": "try { }",
+  "tests": [
+   "test/integration/grounded-assistant.test.ts"
+  ]
+ },
+ {
+  "id": "cp4-task-docs-auth-removed",
+  "what": "task documentation readable across workspaces",
+  "file": "packages/domain/src/knowledge-access.ts",
+  "old": "try { await requireProjectAccess(repos, ctx.userId, task.projectId, 'read'); }",
+  "new": "try { }",
+  "tests": [
+   "test/integration/grounded-assistant.test.ts"
+  ]
+ },
+ {
+  "id": "cp4-component-docs-auth-removed",
+  "what": "component documentation readable across workspaces",
+  "file": "packages/domain/src/knowledge-access.ts",
+  "old": "const { project } = await requireProjectAccess(repos, ctx.userId, projectId, 'read');",
+  "new": "const project = (await repos.projects.findById(projectId))!;",
+  "tests": [
+   "test/integration/grounded-assistant.test.ts"
+  ]
+ },
+ {
+  "id": "cp4-search-project-auth-removed",
+  "what": "project-scoped search skips authorization",
+  "file": "packages/domain/src/knowledge-access.ts",
+  "old": "if (input.projectId) await requireProjectAccess(repos, ctx.userId, input.projectId, 'read');",
+  "new": "",
+  "tests": [
+   "test/integration/grounded-assistant.test.ts"
+  ]
+ },
+ {
+  "id": "cp4-document-delimiter-neutralization-removed",
+  "what": "retrieved text placed in the prompt un-neutralized",
+  "file": "packages/schemas/src/knowledge.ts",
+  "old": "${neutralizeUntrusted(texts.get(c.chunkId) ?? c.excerpt)}",
+  "new": "${(texts.get(c.chunkId) ?? c.excerpt)}",
+  "tests": [
+   "packages/schemas/test/knowledge-core.test.ts",
+   "packages/schemas/test/knowledge-retrieval.test.ts",
+   "test/integration/grounded-assistant.test.ts"
+  ]
+ }
+]

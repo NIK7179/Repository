@@ -4,7 +4,14 @@ An AI-powered solution architect. You describe an idea in your own words; Pitch2
 right discovery questions, confirms your requirements, designs a project-specific architecture, and then guides you
 through building it.
 
-> **Status: Phase 5 (safe architecture evolution).** Everything from Phase 4, plus: request an architecture change in plain language and get an impact
+> **Status: Phase 6 (trusted knowledge and grounded guidance).** Everything from Phase 5, plus: Pitch2Plan indexes *official* documentation for the technologies in
+> your architecture (allow-listed vendor hosts only), retrieves the passages that match a component, task or question, and gives them to Ask Architect as
+> untrusted reference data. Answers carry verifiable citations and a grounding status that the **server** derives (never the model): `GROUNDED`,
+> `PARTIALLY_GROUNDED`, `UNGROUNDED` or `PROJECT_FACT_ONLY`, with each statement labelled as project fact, architecture decision, documented guidance,
+> recommendation or unverified. Task and component documentation, a source inspector and documentation search are included. See
+> [docs/PRODUCT_STATE.md](docs/PRODUCT_STATE.md) and ADR-011/012.
+>
+> *Phase 5 (safe architecture evolution)* is unchanged: Everything from Phase 4, plus: request an architecture change in plain language and get an impact
 > analysis (affected requirements, decisions, components and implementation work, including completed work at risk) before anything changes. You approve
 > explicitly; Pitch2Plan then creates Architecture V2 and Implementation Plan V2, shows a deterministic diff, lets you review how your progress maps onto
 > the new plan, and keeps every V1 version and all history untouched. Also: production readiness review and failure-mode analysis. See
@@ -46,6 +53,8 @@ ANTHROPIC_API_KEY=sk-ant-...
 | `npm run test:ui` | Mounts the real React components in jsdom and drives them against the real production server and Postgres (`npm run build` first) |
 | `npm run test:e2e` | Playwright (real browser) against the production build (`npm run build` first) |
 | `npm run eval:discovery` | Runs four reference ideas through discovery and prints the questions for human review. Needs `AI_PROVIDER=anthropic` for a real evaluation; add `-- --deep` for a second round |
+| `npm run eval:grounding` | Retrieval and answer-grounding evaluation over the real allow-listed documentation (needs outbound HTTPS). `-- --answers` adds real model answers (`AI_PROVIDER=anthropic`); `-- --fixtures` is an offline smoke test of the harness against labelled test pages (TRUNCATES knowledge tables: scratch database only) |
+| `node scripts/smoke-phase6.mjs <url>` | Production smoke test over HTTP (web in `WORKER_MODE=external` + `npm run worker`, fixture documentation): pitch → architecture → plan → ingestion → grounded answer → citation |
 | `npm run db:up` / `db:down` | Local PostgreSQL via Docker Compose |
 | `npm run db:migrate` | `prisma migrate deploy` |
 | `npm run db:migrate:sql` | Engine-free fallback that applies the same SQL migrations (CI, restricted networks) |
@@ -70,6 +79,11 @@ ANTHROPIC_API_KEY=sk-ant-...
 | `ARCH_STALE_RUN_MS` | `600000` | A run with no heartbeat this long is failed so a project is never stuck generating. |
 | `DISCOVERY_MAX_ROUNDS` | `3` | Standard discovery rounds before the brief is offered automatically. |
 | `DISCOVERY_MAX_QUESTIONS` | `6` | Maximum questions per round. |
+| `KNOWLEDGE_FETCHER` | `http` | `http` fetches allow-listed official pages; `fixture` serves labelled test pages (refused in production); `off` disables ingestion. |
+| `ALLOW_FIXTURE_DOCS` | `false` | Must be `true` for the fixture fetcher to run. Tests only. |
+| `KNOWLEDGE_STALE_DAYS` | `30` | Documentation not re-checked within this window is flagged "may be out of date". |
+| `KNOWLEDGE_REFRESH_DAYS` | `7` | The worker re-checks indexed sources this often. |
+| `KNOWLEDGE_DIAGNOSTICS` | `false` | Enables `/api/knowledge/status` (indexing diagnostics). Off by default. |
 | `LOG_LEVEL` | `info` | pino level. |
 | `DEBUG_LOG_PROMPTS` | `false` | Development only; prompts can contain sensitive user data. |
 

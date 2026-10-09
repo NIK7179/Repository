@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { IdeaInterpreter, LLMGateway, MockLLMProvider, createArchitectureAi, createAssistantAi, createChangeAi, createDiscoveryAi, createImplementationAi, type AIUsageEvent, type MockOptions } from '@pitch2plan/ai';
-import { buildCodebook, buildPlanInput, createApplication, loadProjectKnowledge, toImplContext, toPlanInput, noopLogger, type Application, type ArchitectureConfig, type DiscoveryConfig, type ChangeConfig, type ImplementationConfig, type JobQueue } from '@pitch2plan/domain';
+import { HashingEmbeddingProvider, IdeaInterpreter, LLMGateway, MockLLMProvider, createArchitectureAi, createAssistantAi, createChangeAi, createDiscoveryAi, createImplementationAi, type AIUsageEvent, type MockOptions } from '@pitch2plan/ai';
+import { FixtureDocumentFetcher, buildCodebook, buildPlanInput, createApplication, loadProjectKnowledge, toImplContext, toPlanInput, noopLogger, type Application, type ArchitectureConfig, type DiscoveryConfig, type ChangeConfig, type ImplementationConfig, type JobQueue } from '@pitch2plan/domain';
 import { createPrismaClient, createRepositories } from '@pitch2plan/db';
 
 export const PITCH =
@@ -19,7 +19,7 @@ export class ManualQueue implements JobQueue {
   }
 }
 
-export function makeApp(mock: MockOptions = {}, discoveryConfig: Partial<DiscoveryConfig> = {}, architectureConfig: Partial<ArchitectureConfig> = {}, customQueue?: JobQueue, implementationConfig: Partial<ImplementationConfig> = {}, overrides: { assistantAi?: import('@pitch2plan/domain').AssistantAiPort; changeConfig?: Partial<ChangeConfig> } = {}) {
+export function makeApp(mock: MockOptions = {}, discoveryConfig: Partial<DiscoveryConfig> = {}, architectureConfig: Partial<ArchitectureConfig> = {}, customQueue?: JobQueue, implementationConfig: Partial<ImplementationConfig> = {}, overrides: { assistantAi?: import('@pitch2plan/domain').AssistantAiPort; changeConfig?: Partial<ChangeConfig>; fetcher?: import('@pitch2plan/domain').DocumentFetcher; knowledgeConfig?: Partial<import('@pitch2plan/domain').KnowledgeConfig> } = {}) {
   const prisma = createPrismaClient(process.env.DATABASE_URL!);
   const repos = createRepositories(prisma);
   const provider = new MockLLMProvider(mock);
@@ -29,9 +29,9 @@ export function makeApp(mock: MockOptions = {}, discoveryConfig: Partial<Discove
     onUsage: async (e) => { usage.push(e); await repos.usage.record(e); },
   });
   const queue = new ManualQueue();
-  const app: Application = createApplication({ repos, interpreter: new IdeaInterpreter(gateway), discoveryAi: createDiscoveryAi(gateway), architectureAi: createArchitectureAi(gateway), implementationAi: createImplementationAi(gateway), assistantAi: overrides.assistantAi ?? createAssistantAi(gateway), changeAi: createChangeAi(gateway), queue: customQueue ?? queue, logger: noopLogger, discoveryConfig, architectureConfig, implementationConfig, changeConfig: overrides.changeConfig });
+  const app: Application = createApplication({ repos, interpreter: new IdeaInterpreter(gateway), discoveryAi: createDiscoveryAi(gateway), architectureAi: createArchitectureAi(gateway), implementationAi: createImplementationAi(gateway), assistantAi: overrides.assistantAi ?? createAssistantAi(gateway), changeAi: createChangeAi(gateway), queue: customQueue ?? queue, logger: noopLogger, discoveryConfig, architectureConfig, implementationConfig, changeConfig: overrides.changeConfig, fetcher: overrides.fetcher ?? new FixtureDocumentFetcher({ allow: true }), embedder: new HashingEmbeddingProvider(), knowledgeConfig: overrides.knowledgeConfig });
   /** Runs every queued job through the real worker entry point, like the pg-boss worker would. */
-  const runJobs = async () => { const out = []; while (queue.jobs.length) { const j = queue.jobs.shift()!; out.push(j.name === 'implementation.generate' ? await app.implementation.runGeneration(j.runId) : j.name === 'change.analyze' ? await app.change.runAnalysis(j.runId) : j.name === 'change.apply' ? await app.change.runApplication(j.runId) : await app.architecture.runGeneration(j.runId)); } return out; };
+  const runJobs = async () => { const out = []; while (queue.jobs.length) { const j = queue.jobs.shift()!; out.push(j.name === 'implementation.generate' ? await app.implementation.runGeneration(j.runId) : j.name === 'change.analyze' ? await app.change.runAnalysis(j.runId) : j.name === 'change.apply' ? await app.change.runApplication(j.runId) : j.name.startsWith('knowledge.') ? await app.knowledge.runIngestion(j.runId) : await app.architecture.runGeneration(j.runId)); } return out; };
   return { prisma, repos, app, provider, usage, queue, runJobs };
 }
 

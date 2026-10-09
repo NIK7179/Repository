@@ -186,7 +186,7 @@ describe('component workspace', () => {
     const user = userEvent.setup();
     render(<ComponentWorkspace projectId={id} stableKey="event-stream" />);
     expect((await screen.findByTestId('component-title')).textContent).toBe('Event stream');
-    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Overview', 'Implementation', 'Configuration', 'Connections', 'Decisions', 'Risks', 'Monitoring', 'Ask Architect']);
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Overview', 'Implementation', 'Configuration', 'Connections', 'Decisions', 'Risks', 'Monitoring', 'Documentation', 'Ask Architect']);
     expect(screen.getByTestId('component-progress').textContent).toMatch(/0 of \d+ tasks complete/);
     expect(screen.getByTestId('impl-summary').textContent).toMatch(/\d+ tasks remaining/);
     // Nothing is startable yet (the environment must exist first), so it says what is next and that it is waiting.
