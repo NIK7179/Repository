@@ -8,7 +8,7 @@ export default async function setup() {
   await applyMigrations(DB, { reset: true });
   const server = spawn('npx', ['next', 'start', '-p', String(PORT)], {
     cwd: new URL('..', import.meta.url).pathname,
-    env: { ...process.env, DATABASE_URL: DB, ALLOW_DEV_AUTH: 'true', AI_PROVIDER: 'mock', AUTH_SECRET: 'ui-test-secret-ui-test-secret-0000', LOG_LEVEL: 'silent', NODE_ENV: 'production', WORKER_MODE: 'inline' },
+    env: { ...process.env, DATABASE_URL: DB, ALLOW_DEV_AUTH: 'true', AI_PROVIDER: 'mock', AUTH_SECRET: 'ui-test-secret-ui-test-secret-0000', LOG_LEVEL: 'silent', NODE_ENV: 'production', WORKER_MODE: 'inline', RATE_LIMIT_SCALE: '50' },
     stdio: ['ignore', 'pipe', 'pipe'], detached: true,
   });
   let out = '';

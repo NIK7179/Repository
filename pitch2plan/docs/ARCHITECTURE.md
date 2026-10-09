@@ -1,4 +1,4 @@
-# Architecture (Phase 3)
+# Architecture (Phase 4)
 
 Pitch2Plan is a **modular monolith**: one Next.js deployable, plus a reserved worker. Boundaries are enforced by
 package dependencies so modules can be extracted later if scale demands it (see ADR-001).
@@ -94,6 +94,30 @@ worker (apps/worker, or inline in dev):  runGeneration(runId)
 * **No stuck projects.** Failures return the project to REQUIREMENTS_CONFIRMED. A run whose worker vanished is failed (`GENERATION_TIMED_OUT`) by a sweeper on worker start and every minute, and lazily when the project, job or `generate` is read.
 * **Failure UX is safe.** Only fixed, user-presentable messages and a code are stored on the run; provider errors, secrets and stack traces never reach it.
 
+## Implementation planning and the contextual architect (Phase 4)
+
+```
+Architecture READY (immutable version)
+  POST /api/projects/:id/implementation/generate   -> 202, same queue/worker/idempotency pattern as architecture generation
+  worker: ImplementationPlanner -> deterministic validation -> ImplementationPlanCritic -> bounded ImplementationPlanRepairer (patch)
+  finalize in ONE transaction: run SUCCEEDED + plan version + phases + tasks + steps + dependencies + links + validation rows
+Roadmap -> task workspace -> start / block / skip / complete (with the user's own validation confirmations)
+Component workspace (facts vs AI guidance) <-> task <-> decision, all by persisted links
+Ask Architect: ContextBuilder -> streamed answer (SSE) -> validated, classified, stored only when complete
+```
+
+* **The plan is domain data bound to ONE architecture version.** `ImplementationPlanVersion.architectureVersionId` is unique and a trigger forbids re-pointing it. A task's content is immutable (trigger); only its `status` changes, and every change appends a `TaskProgressEvent`. A future architecture V2 gets its own plan; V1's is never mutated.
+* **Tasks link by identity.** `TaskComponentLink(architectureVersionId, stableKey)`, `TaskDecisionLink`, `TaskRequirementLink`, `TaskDependency`. So Requirement -> Driver -> Decision -> Component -> Task is queryable; "why does this task exist?" and "what implements this decision?" need no model call.
+* **Validation is code, not trust.** `validateImplementationPlan`: unique keys, known phases/components/decisions/requirements, no self/duplicate/cyclic dependencies (Kahn), no dependency on a LATER phase, non-empty phases, coverage of every component (or an explicit reason; purely external dependencies are exempt). `evaluateImplementationRules`: missing testing/observability/security/deployment work, technology in tasks that is not in the architecture, generic-language heuristic. The critic adds judgment; the repairer returns a strict patch (`.partial().strict()`, no re-applied defaults) applied by code. A CRITICAL issue after the repair cap fails the run.
+* **Idempotency in layers (like Phase 3).** one ACTIVE run per project (partial unique index) -> `claimRun` CAS -> `finalize` CAS -> unique run id and unique architecture version per plan. Generating a plan does NOT change the project status; **the first task start moves ARCHITECTURE_READY -> IMPLEMENTING**.
+* **Progress rule (single, documented).** SKIPPED tasks are excluded from the denominator: `completed / (total - skipped)`. A task is READY when it is NOT_STARTED and every dependency is COMPLETED or SKIPPED. "Next best" is deterministic: continue what is in progress, else the earliest READY task (phase order, then sequence), with a reason built from real data.
+* **Completion is honest.** Completing needs every validation step confirmed by the user (`USER_CONFIRMED`). `SYSTEM_VERIFIED` exists in the data model for future integrations and is never written today; the UI never says "verified" for a checkbox.
+* **Facts vs guidance.** The component workspace separates ARCHITECTURE FACTS (persisted, versioned) from AI GUIDANCE (task text, notes, links; labelled, never applied automatically). Documentation links are `https` only and shown as unverified.
+* **ContextBuilder** (`assistant-context.ts`, pure and unit-tested) selects, per scope (PROJECT / COMPONENT / TASK): the focus component(s) and neighbours, their connections, the decisions that govern them, the requirements and drivers behind those decisions (plus topical requirements when the question is about security, performance, cost or availability), the current task and step, related tasks, progress and a short conversation tail. Unrelated components and requirements are deliberately omitted; oversize context is shrunk by dropping the least relevant material first.
+* **Assistant output.** Answer text, then `<<<STRUCTURED>>>` and a JSON trailer (warnings, commands, code, validation steps, related task ids, architecture impact, `needsArchitectureChange`). The server validates it, drops task ids it cannot verify, **classifies every command itself** (READ_ONLY / MUTATING / DESTRUCTIVE; the model's opinion is ignored), adds fixed notices, and never changes the architecture. Commands are never run.
+* **Streaming and failure.** SSE `start -> delta* -> done | error`. Authorization and scope errors are thrown before the stream opens (normal JSON errors). A provider error, timeout, dropped connection or cancel stores NO assistant message; the user's question is stored once (idempotent `clientMessageId`) so "Try again" reuses it. Usage is tracked per capability (`IMPLEMENTATION_*`, `TASK_ASSISTANT`) on success and failure.
+* **Conversations** are private to their owner and addressed by `(project, scope, scopeId)`.
+
 ## Security
 
 Server-side authorization on every project operation; workspace ids from the browser are verified against memberships;
@@ -108,6 +132,7 @@ The domain provisions the internal `User` + personal workspace from that identit
 In production the dev provider refuses to start unless `ALLOW_DEV_AUTH=true`.
 
 ## Known limitations
+* **Phase 4 limits.** Live Claude plan and answer quality is unverified (run `npm run eval:implementation`). Only the current READY architecture is planned; plan V2 for a later architecture version is not built. Technology icons are still monogram badges. Documentation grounding/RAG is not built (links are unverified suggestions). Commands and code are shown, never executed or written back. Completion is user-confirmed only. The assistant cannot change the architecture (change proposals come later). Conversations are private per user (no team sharing yet).
 
 * **Auth:** only the dev provider is implemented. The Clerk (or similar) adapter is a documented seam, not yet built.
 * **Rate limiting** is in-process (single instance). The `RateLimiter` interface is ready for a shared store.

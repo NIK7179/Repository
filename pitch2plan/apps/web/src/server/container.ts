@@ -21,8 +21,9 @@ export function getContainer(): Container {
     ai: { provider: env.AI_PROVIDER, anthropicApiKey: env.ANTHROPIC_API_KEY, model: env.ANTHROPIC_MODEL, timeoutMs: env.LLM_TIMEOUT_MS, maxRetries: env.LLM_MAX_RETRIES, debugLogPrompts: env.DEBUG_LOG_PROMPTS === 'true' && env.NODE_ENV !== 'production' },
     discovery: { maxDiscoveryRounds: env.DISCOVERY_MAX_ROUNDS, maxQuestionsPerRound: env.DISCOVERY_MAX_QUESTIONS },
     architecture: { maxRepairs: env.ARCH_MAX_REPAIRS, staleRunMs: env.ARCH_STALE_RUN_MS },
+    implementation: { maxRepairs: env.ARCH_MAX_REPAIRS, staleRunMs: env.ARCH_STALE_RUN_MS },
   }, queue);
-  const c: Container = { ...rt, queue, auth: new DevAuthProvider(env.AUTH_SECRET), rateLimiter: new MemoryRateLimiter(), authSecret: env.AUTH_SECRET };
+  const c: Container = { ...rt, queue, auth: new DevAuthProvider(env.AUTH_SECRET), rateLimiter: new MemoryRateLimiter(env.RATE_LIMIT_SCALE), authSecret: env.AUTH_SECRET };
   g.__p2p = c;
   const mode = env.WORKER_MODE ?? (env.NODE_ENV === 'production' ? 'external' : 'inline');
   if (mode === 'inline') void queue.startWorker(rt.app).catch((e) => logger.error({ err: String(e) }, 'inline worker failed to start'));

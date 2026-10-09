@@ -4,10 +4,10 @@ An AI-powered solution architect. You describe an idea in your own words; Pitch2
 right discovery questions, confirms your requirements, designs a project-specific architecture, and then guides you
 through building it.
 
-> **Status: Phase 3 (architecture generation).** Pitch an idea, answer discovery, confirm requirements, then generate a
-> project-specific architecture: components, connections and decisions that trace back to the requirements that caused them,
-> shown on an interactive canvas. Implementation guidance, change proposals and exports arrive in later phases.
-> See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+> **Status: Phase 4 (implementable architecture).** Pitch an idea, answer discovery, confirm requirements, generate an architecture, then turn it
+> into a project-specific implementation plan: phases and tasks with dependencies, a workspace for every component, step-by-step guidance, honest
+> progress tracking, and an Ask Architect assistant that already knows your project. Architecture change proposals, repository write-back and
+> cloud integrations arrive in later phases. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Quick start
 
@@ -40,6 +40,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 | `npm test` | Vitest: unit tests and integration tests against `TEST_DATABASE_URL` (schema rebuilt on each run) |
 | `npm run worker` | Runs the background job worker (architecture generation) as its own process. In development the web app runs the same worker in-process (`WORKER_MODE=inline`), so `npm run dev` is enough |
 | `npm run eval:architecture` | Runs four reference projects through planner -> validate -> critic -> repair and prints designs and metrics for human review. Needs `AI_PROVIDER=anthropic` for a real evaluation; add `-- --deep` for full rationales |
+| `npm run eval:implementation` | Runs four reference architectures through the implementation planner -> validate -> critic -> repair pipeline and prints plans and metrics for human review (`-- --deep` for full task text). Needs `AI_PROVIDER=anthropic` for a real evaluation |
 | `npm run test:ui` | Mounts the real React components in jsdom and drives them against the real production server and Postgres (`npm run build` first) |
 | `npm run test:e2e` | Playwright (real browser) against the production build (`npm run build` first) |
 | `npm run eval:discovery` | Runs four reference ideas through discovery and prints the questions for human review. Needs `AI_PROVIDER=anthropic` for a real evaluation; add `-- --deep` for a second round |
@@ -62,6 +63,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 | `ANTHROPIC_MODEL` | `claude-sonnet-5-5` | |
 | `LLM_TIMEOUT_MS` / `LLM_MAX_RETRIES` | `60000` / `2` | Gateway policy. |
 | `WORKER_MODE` | `inline` in dev, `external` in production | `inline`: the web process also consumes jobs. `external`: run `npm run worker`. **In production without a worker, generation will time out.** |
+| `RATE_LIMIT_SCALE` | `1` | Multiplies every rate limit. For test and demo servers only: values above 1 are refused unless `ALLOW_DEV_AUTH=true`. The UI test server sets it so many users can sign in from one address. |
 | `ARCH_MAX_REPAIRS` | `2` | Bounded repair cycle. |
 | `ARCH_STALE_RUN_MS` | `600000` | A run with no heartbeat this long is failed so a project is never stuck generating. |
 | `DISCOVERY_MAX_ROUNDS` | `3` | Standard discovery rounds before the brief is offered automatically. |

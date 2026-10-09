@@ -22,7 +22,10 @@ const schema = z.object({
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   /** Development only. Prompts may contain sensitive user data. */
   DEBUG_LOG_PROMPTS: z.enum(['true', 'false']).default('false'),
+  /** Multiplies every rate limit. Test servers only: refused above 1 unless the throwaway dev auth is explicitly enabled. */
+  RATE_LIMIT_SCALE: z.coerce.number().int().min(1).max(1000).default(1),
 }).superRefine((e, ctx) => {
+  if (e.RATE_LIMIT_SCALE > 1 && e.ALLOW_DEV_AUTH !== 'true') ctx.addIssue({ code: 'custom', path: ['RATE_LIMIT_SCALE'], message: 'RATE_LIMIT_SCALE above 1 is only allowed together with ALLOW_DEV_AUTH=true (test and demo servers).' });
   const prod = e.NODE_ENV === 'production';
   if (e.AI_PROVIDER === 'anthropic' && !e.ANTHROPIC_API_KEY) ctx.addIssue({ code: 'custom', path: ['ANTHROPIC_API_KEY'], message: 'Required when AI_PROVIDER=anthropic' });
   if (prod && !e.AUTH_SECRET) ctx.addIssue({ code: 'custom', path: ['AUTH_SECRET'], message: 'Required in production' });

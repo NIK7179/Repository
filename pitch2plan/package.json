@@ -27,7 +27,8 @@
     "test:ui": "vitest run --config vitest.ui.config.ts",
     "eval:discovery": "tsx --env-file=.env scripts/eval-discovery.mts",
     "worker": "npm run start -w @pitch2plan/worker",
-    "eval:architecture": "tsx --env-file=.env scripts/eval-architecture.mts"
+    "eval:architecture": "tsx --env-file=.env scripts/eval-architecture.mts",
+    "eval:implementation": "tsx --env-file=.env scripts/eval-implementation.mts"
   },
   "devDependencies": {
     "@eslint/js": "^9.30.0",

@@ -27,7 +27,7 @@ export function DecisionsView({ projectId }: { projectId: string }) {
         {v.decisions.map((d: DecisionDto) => (
           <li key={d.id} className="rounded-lg border border-border bg-panel p-5" data-testid="decision-card">
             <div className="flex flex-wrap items-center gap-2"><Badge tone="accent">{d.key.toUpperCase()}</Badge><Badge tone={tone(d.status)}>{d.status.toLowerCase()}</Badge><span className="text-xs text-muted">{Math.round(d.confidence * 100) >= 75 ? 'High confidence' : Math.round(d.confidence * 100) >= 50 ? 'Medium confidence' : 'Needs confirmation'}</span></div>
-            <h2 className="mt-2 text-base font-semibold">{d.title}</h2>
+            <div className="mt-2 flex flex-wrap items-baseline justify-between gap-2"><h2 className="text-base font-semibold">{d.title}</h2><Link href={`/projects/${projectId}/implementation?decision=${d.key}`} data-testid="decision-tasks-link" className="text-xs text-accent underline">View implementation tasks</Link></div>
             <dl className="mt-3 space-y-3 text-sm">
               <div><dt className="font-medium">Problem</dt><dd className="text-muted">{d.problem}</dd></div>
               <div><dt className="font-medium">Decision</dt><dd>{d.decision}</dd></div>

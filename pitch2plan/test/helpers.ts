@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { IdeaInterpreter, LLMGateway, MockLLMProvider, createArchitectureAi, createDiscoveryAi, type AIUsageEvent, type MockOptions } from '@pitch2plan/ai';
-import { buildCodebook, buildPlanInput, createApplication, noopLogger, type Application, type ArchitectureConfig, type DiscoveryConfig, type JobQueue } from '@pitch2plan/domain';
+import { IdeaInterpreter, LLMGateway, MockLLMProvider, createArchitectureAi, createAssistantAi, createDiscoveryAi, createImplementationAi, type AIUsageEvent, type MockOptions } from '@pitch2plan/ai';
+import { buildCodebook, buildPlanInput, createApplication, loadProjectKnowledge, toImplContext, toPlanInput, noopLogger, type Application, type ArchitectureConfig, type DiscoveryConfig, type ImplementationConfig, type JobQueue } from '@pitch2plan/domain';
 import { createPrismaClient, createRepositories } from '@pitch2plan/db';
 
 export const PITCH =
@@ -19,7 +19,7 @@ export class ManualQueue implements JobQueue {
   }
 }
 
-export function makeApp(mock: MockOptions = {}, discoveryConfig: Partial<DiscoveryConfig> = {}, architectureConfig: Partial<ArchitectureConfig> = {}, customQueue?: JobQueue) {
+export function makeApp(mock: MockOptions = {}, discoveryConfig: Partial<DiscoveryConfig> = {}, architectureConfig: Partial<ArchitectureConfig> = {}, customQueue?: JobQueue, implementationConfig: Partial<ImplementationConfig> = {}, overrides: { assistantAi?: import('@pitch2plan/domain').AssistantAiPort } = {}) {
   const prisma = createPrismaClient(process.env.DATABASE_URL!);
   const repos = createRepositories(prisma);
   const provider = new MockLLMProvider(mock);
@@ -29,9 +29,9 @@ export function makeApp(mock: MockOptions = {}, discoveryConfig: Partial<Discove
     onUsage: async (e) => { usage.push(e); await repos.usage.record(e); },
   });
   const queue = new ManualQueue();
-  const app: Application = createApplication({ repos, interpreter: new IdeaInterpreter(gateway), discoveryAi: createDiscoveryAi(gateway), architectureAi: createArchitectureAi(gateway), queue: customQueue ?? queue, logger: noopLogger, discoveryConfig, architectureConfig });
+  const app: Application = createApplication({ repos, interpreter: new IdeaInterpreter(gateway), discoveryAi: createDiscoveryAi(gateway), architectureAi: createArchitectureAi(gateway), implementationAi: createImplementationAi(gateway), assistantAi: overrides.assistantAi ?? createAssistantAi(gateway), queue: customQueue ?? queue, logger: noopLogger, discoveryConfig, architectureConfig, implementationConfig });
   /** Runs every queued job through the real worker entry point, like the pg-boss worker would. */
-  const runJobs = async () => { const out = []; while (queue.jobs.length) out.push(await app.architecture.runGeneration(queue.jobs.shift()!.runId)); return out; };
+  const runJobs = async () => { const out = []; while (queue.jobs.length) { const j = queue.jobs.shift()!; out.push(j.name === 'implementation.generate' ? await app.implementation.runGeneration(j.runId) : await app.architecture.runGeneration(j.runId)); } return out; };
   return { prisma, repos, app, provider, usage, queue, runJobs };
 }
 
@@ -88,4 +88,25 @@ export async function contextFor(h: ReturnType<typeof makeApp>, projectId: strin
   const codebook = buildCodebook(requirements, version.content.architectureDrivers.map((d) => d.id), drivers);
   const built = buildPlanInput({ context: { workspaceId: 'w', projectId, userId: 'u' }, project: { name: 'x' }, brief: version.content, requirements, drivers, codebook });
   return { ...built, codebook, briefVersionId: version.id };
+}
+
+/** A project with a READY architecture (mock AI, deterministic). */
+export async function architectureReadyProject(h: ReturnType<typeof makeApp>, opts: Parameters<typeof confirmedProject>[1] = {}) {
+  const p = await confirmedProject(h, opts);
+  await h.app.architecture.generate(p.ctx, p.project.id); await h.runJobs();
+  return p;
+}
+/** A project with a READY architecture AND a generated implementation plan. */
+export async function implementationReadyProject(h: ReturnType<typeof makeApp>, opts: Parameters<typeof confirmedProject>[1] = {}) {
+  const p = await architectureReadyProject(h, opts);
+  await h.app.implementation.generate(p.ctx, p.project.id); await h.runJobs();
+  const o = await h.app.implementation.getOverview(p.ctx, p.project.id);
+  return { ...p, overview: o, plan: o.plan! };
+}
+
+/** The exact planner input the service builds for an implementation plan, so tests can script realistic model output. */
+export async function implInputFor(h: ReturnType<typeof makeApp>, projectId: string) {
+  const project = (await h.repos.projects.findById(projectId))!;
+  const k = await loadProjectKnowledge(h.repos, project);
+  return { k, input: toPlanInput(k, { workspaceId: project.workspaceId, projectId, userId: 'u' }), ...toImplContext(k) };
 }

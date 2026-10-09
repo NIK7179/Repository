@@ -48,6 +48,21 @@ describe('session cookies', () => {
   });
 });
 
+describe('rate limit scale (test servers only)', () => {
+  it('multiplies the limit, and stays strict by default', () => {
+    const strict = new MemoryRateLimiter(); const scaled = new MemoryRateLimiter(10);
+    expect([1, 2, 3].map(() => strict.check('k', 2, 60_000, 0).ok)).toEqual([true, true, false]);
+    expect(Array.from({ length: 21 }, () => scaled.check('k', 2, 60_000, 0).ok).filter(Boolean)).toHaveLength(20);
+  });
+  it('is refused by the environment unless the throwaway dev auth is explicitly enabled', async () => {
+    const { getEnv } = await import('./env');
+    const base = { DATABASE_URL: 'postgresql://x', AUTH_SECRET: 'a-sufficiently-long-secret' } as Record<string, string>;
+    const env = (e: Record<string, string>) => { const saved = { ...process.env }; Object.assign(process.env, base, e); try { return getEnv(); } finally { process.env = saved; } };
+    expect(() => env({ RATE_LIMIT_SCALE: '50' })).toThrow(/RATE_LIMIT_SCALE/);
+    expect(env({ RATE_LIMIT_SCALE: '50', ALLOW_DEV_AUTH: 'true' }).RATE_LIMIT_SCALE).toBe(50);
+  });
+});
+
 describe('MemoryRateLimiter', () => {
   it('blocks after the limit within a window and recovers after it', () => {
     const rl = new MemoryRateLimiter();

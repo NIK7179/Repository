@@ -1,4 +1,4 @@
-import { AIError, noopLogger, type AIUsageEvent, type CallMeta, type LLMProvider, type LLMRequest, type LLMResult, type Logger } from './types';
+import { AIError, noopLogger, type AIUsageEvent, type CallMeta, type LLMProvider, type LLMRequest, type LLMResult, type LLMStreamChunk, type Logger } from './types';
 
 export interface GatewayConfig {
   provider: LLMProvider;
@@ -63,6 +63,35 @@ export class LLMGateway {
 
   stream(req: Omit<LLMRequest, 'model' | 'signal'>) {
     return this.cfg.provider.stream({ maxTokens: this.cfg.maxTokens, ...req, model: this.cfg.model });
+  }
+
+  /**
+   * Streaming with the same guarantees as generate(): a timeout, usage/cost capture on success AND failure, normalized errors, and
+   * cancellation by the caller. There are no retries: a retry would re-send text the user has already seen.
+   */
+  async *streamTracked(req: Omit<LLMRequest, 'model' | 'signal'>, meta: CallMeta, signal?: AbortSignal): AsyncGenerator<LLMStreamChunk> {
+    const { provider, model } = this.cfg;
+    const started = Date.now(); const controller = new AbortController(); let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; controller.abort(); }, req.timeoutMs ?? this.cfg.timeoutMs);
+    const onAbort = () => controller.abort(); signal?.addEventListener('abort', onAbort, { once: true });
+    const { timeoutMs: _t, ...providerReq } = req;
+    try {
+      for await (const chunk of provider.stream({ maxTokens: this.cfg.maxTokens, ...providerReq, model, signal: controller.signal })) {
+        // Do not depend on the provider noticing cancellation or the timeout between chunks.
+        if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+        if (chunk.type === 'done') {
+          this.logger.info({ action: 'llm.stream', capability: meta.capability, promptId: meta.promptId, provider: provider.name, latencyMs: Date.now() - started, ...chunk.result.usage }, 'llm stream succeeded');
+          await this.report(meta, chunk.result.model, Date.now() - started, true, chunk.result.usage);
+        }
+        yield chunk;
+      }
+    } catch (e) {
+      const cancelled = !!signal?.aborted && !timedOut;
+      const err = this.normalize(e, timedOut);
+      await this.report(meta, model, Date.now() - started, false, {}, cancelled ? 'CANCELLED' : err.code);
+      if (cancelled) throw e;
+      throw err;
+    } finally { clearTimeout(timer); signal?.removeEventListener('abort', onAbort); }
   }
 
   private normalize(e: unknown, timedOut: boolean): AIError {

@@ -29,6 +29,7 @@ const rt = composeRuntime({
   ai: { provider: env.AI_PROVIDER, anthropicApiKey: env.ANTHROPIC_API_KEY, model: env.ANTHROPIC_MODEL, timeoutMs: env.LLM_TIMEOUT_MS, maxRetries: env.LLM_MAX_RETRIES },
   discovery: { maxDiscoveryRounds: env.DISCOVERY_MAX_ROUNDS, maxQuestionsPerRound: env.DISCOVERY_MAX_QUESTIONS },
   architecture: { maxRepairs: env.ARCH_MAX_REPAIRS, staleRunMs: env.ARCH_STALE_RUN_MS },
+  implementation: { maxRepairs: env.ARCH_MAX_REPAIRS, staleRunMs: env.ARCH_STALE_RUN_MS },
 }, queue);
 
 const worker = await queue.startWorker(rt.app);

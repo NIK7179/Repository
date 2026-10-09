@@ -6,7 +6,9 @@ export interface RateLimiter { check(key: string, limit: number, windowMs: numbe
  */
 export class MemoryRateLimiter implements RateLimiter {
   private hits = new Map<string, { count: number; resetAt: number }>();
-  check(key: string, limit: number, windowMs: number, now = Date.now()) {
+  constructor(private readonly scale = 1) {}
+  check(key: string, rawLimit: number, windowMs: number, now = Date.now()) {
+    const limit = rawLimit * this.scale;
     const cur = this.hits.get(key);
     if (!cur || cur.resetAt <= now) {
       this.hits.set(key, { count: 1, resetAt: now + windowMs });

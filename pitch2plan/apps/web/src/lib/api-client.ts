@@ -1,4 +1,4 @@
-import type { ArchitectureService, BriefView, DiscoveryState } from '@pitch2plan/domain';
+import type { ArchitectureService, AssistantService, BriefView, DiscoveryState, ImplementationService } from '@pitch2plan/domain';
 import type { ApiErrorBody, ApiSuccessBody, IdeaInterpretation, ProjectStatus, TechnicalLevel } from '@pitch2plan/schemas';
 
 export interface ProjectDto { id: string; workspaceId: string; name: string; description: string | null; status: ProjectStatus; createdAt: string; updatedAt: string }
@@ -54,3 +54,12 @@ export type ArchitectureOverviewDto = Json<Awaited<ReturnType<ArchitectureServic
 export type NodeInspectorDto = Json<Awaited<ReturnType<ArchitectureService['getNode']>>>;
 export type RunDto = NonNullable<ArchitectureOverviewDto['run']>;
 export type DecisionDto = NonNullable<ArchitectureOverviewDto['current']>['decisions'][number];
+
+export type ImplementationOverviewDto = Json<Awaited<ReturnType<ImplementationService['getOverview']>>>;
+export type PlanDto = NonNullable<ImplementationOverviewDto['plan']>;
+export type PlanTaskDto = PlanDto['tasks'][number];
+export type PlanPhaseDto = PlanDto['phases'][number];
+export type TaskDetailDto = Json<Awaited<ReturnType<ImplementationService['getTask']>>>;
+export type ComponentWorkspaceDto = Json<Awaited<ReturnType<ImplementationService['getComponent']>>>;
+export type ConversationDto = Json<Awaited<ReturnType<AssistantService['getConversation']>>>;
+export type MessageDto = ConversationDto['messages'][number];

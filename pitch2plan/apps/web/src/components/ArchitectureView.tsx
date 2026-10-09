@@ -88,7 +88,7 @@ export function ArchitectureView({ projectId }: { projectId: string }) {
           <ArchitectureCanvas version={v.version as unknown as VersionDto['version']} mode={mode} onModeChange={setMode} selection={sel} onSelect={setSelection} />
         </div>
         <aside aria-label="Inspector" className="max-h-[560px] overflow-y-auto rounded-lg border border-border bg-panel p-4">
-          {sel?.kind === 'node' ? <NodeInspector versionId={v.version.id} stableKey={sel.key} onClose={() => setSelection(null)} />
+          {sel?.kind === 'node' ? <NodeInspector versionId={v.version.id} stableKey={sel.key} projectId={projectId} onClose={() => setSelection(null)} />
             : sel?.kind === 'edge' && version ? <EdgeInspector version={version} edgeKey={sel.key} onClose={() => setSelection(null)} />
             : <div className="text-sm text-muted"><p className="font-medium text-fg">Select a component or connection</p><p className="mt-1">See why it exists, what it connects to, the decisions behind it and the requirements that caused it.</p></div>}
         </aside>

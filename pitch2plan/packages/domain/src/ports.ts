@@ -29,7 +29,7 @@ export interface AuditEventInput {
 }
 
 /** Persistence ports. Implemented by packages/db; the domain never imports Prisma. */
-export interface Repositories extends DiscoveryRepositories, ArchitectureRepositories {
+export interface Repositories extends DiscoveryRepositories, ArchitectureRepositories, ImplementationRepositories {
   users: {
     findById(id: string): Promise<UserRecord | null>;
     /** Idempotent: creates the user, a personal workspace and an OWNER membership on first sight. */
@@ -249,3 +249,76 @@ export interface JobQueue {
   enqueue(name: string, payload: { runId: string }, options: { singletonKey: string }): Promise<string | null>;
 }
 export const ARCHITECTURE_JOB = 'architecture.generate';
+
+// ====================================================================== Phase 4: implementation + assistant
+import type {
+  AssistantMessageContent, ConversationScope, ImplCritiqueInput, ImplCriticOutput, ImplementationPlan, ImplIssue, ImplPlanInput, ImplRepairInput, ImplRepairPatch, TaskStatus, PhaseStatus,
+} from '@pitch2plan/schemas';
+
+export const IMPLEMENTATION_JOB = 'implementation.generate';
+export interface StepRecord { id: string; sequence: number; title: string; instruction: string; expectedResult: string; validation: string; status: 'NOT_STARTED' | 'COMPLETED'; completedAt: Date | null }
+export interface ValidationRecord { id: string; position: number; label: string; confirmed: boolean; confirmationKind: 'USER_CONFIRMED' | 'SYSTEM_VERIFIED' | null; confirmedById: string | null; confirmedAt: Date | null }
+export interface ProgressEventRecord { id: string; fromStatus: TaskStatus; toStatus: TaskStatus; reason: string | null; actorId: string; createdAt: Date }
+export interface TaskReference { title: string; url: string; sourceType: string; technology: string; version: string | null }
+export interface TaskRecord {
+  id: string; planVersionId: string; phaseId: string; phaseKey: string; phaseSequence: number; key: string; sequence: number; title: string; objective: string; description: string; whyThisTask: string;
+  taskType: string; complexity: string; effort: string; status: TaskStatus; prerequisites: string[]; instructions: string; expectedOutcome: string; validationSteps: string[];
+  commonProblems: Array<{ problem: string; resolution: string }>; securityNotes: string[]; operationalNotes: string[]; references: TaskReference[]; createdAt: Date; updatedAt: Date;
+  steps: StepRecord[]; dependsOn: string[]; componentKeys: string[]; decisionKeys: string[]; requirementIds: string[]; validations: ValidationRecord[];
+}
+export interface PhaseRecord { id: string; key: string; sequence: number; name: string; objective: string; description: string; status: PhaseStatus }
+export interface ImplIssueRecord extends ImplIssue { id: string; stage: string }
+export interface PlanVersionRecord {
+  id: string; planId: string; projectId: string; versionNumber: number; architectureVersionId: string; generationRunId: string; summary: string;
+  componentCoverage: Array<{ stableKey: string; reason: string }>; ai: Record<string, unknown>; createdAt: Date; phases: PhaseRecord[]; tasks: TaskRecord[]; issues: ImplIssueRecord[];
+}
+export interface ImplRunRecord {
+  id: string; projectId: string; architectureVersionId: string; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED'; currentStage: string; attempt: number; repairCount: number;
+  failureCode: string | null; failureMessage: string | null; jobId: string | null; requestedById: string; createdAt: Date; startedAt: Date | null; heartbeatAt: Date | null; finishedAt: Date | null; planVersionId: string | null;
+}
+export interface PersistPlanInput {
+  runId: string; projectId: string; architectureVersionId: string; plan: ImplementationPlan; decisionIdByKey: Record<string, string>; requirementIdByCode: Record<string, string>;
+  issues: Array<ImplIssue & { stage: string }>; ai: Record<string, unknown>;
+}
+export interface ConversationRecord { id: string; projectId: string; scope: ConversationScope; scopeId: string; createdById: string | null; createdAt: Date }
+export interface MessageRecord { id: string; conversationId: string; role: 'USER' | 'ASSISTANT' | 'SYSTEM'; content: string; status: 'COMPLETE' | 'FAILED'; structured: AssistantMessageContent | null; contextRefs: Array<{ type: string; id: string }> | null; clientMessageId: string | null; createdAt: Date }
+
+export interface ImplementationRepositories {
+  implementation: {
+    getPlanByProject(projectId: string): Promise<{ id: string; projectId: string; currentVersionId: string | null } | null>;
+    getVersion(planVersionId: string): Promise<PlanVersionRecord | null>;
+    getTask(taskId: string): Promise<(TaskRecord & { projectId: string; events: ProgressEventRecord[] }) | null>;
+    taskIdsDependingOn(taskId: string): Promise<string[]>;
+    startGeneration(input: { projectId: string; architectureVersionId: string; userId: string }): Promise<ImplRunRecord | null>;
+    attachJob(runId: string, jobId: string): Promise<void>;
+    getRun(id: string): Promise<ImplRunRecord | null>;
+    getRunByJobId(jobId: string): Promise<ImplRunRecord | null>;
+    getLatestRun(projectId: string): Promise<ImplRunRecord | null>;
+    claimRun(runId: string, staleBefore: Date): Promise<ImplRunRecord | null>;
+    touchRun(runId: string, patch: { currentStage?: string; repairCount?: number }): Promise<void>;
+    finalize(input: PersistPlanInput): Promise<{ planVersionId: string; created: boolean }>;
+    failRun(input: { runId: string; code: string; message: string; issues?: Array<ImplIssue & { stage: string }> }): Promise<{ failed: boolean }>;
+    listStaleRuns(before: Date): Promise<ImplRunRecord[]>;
+    /** Compare-and-set on the current status; appends a history event; recomputes the phase status; moves the project to IMPLEMENTING on the first start. */
+    updateTaskStatus(input: { taskId: string; from: TaskStatus; to: TaskStatus; userId: string; reason?: string }): Promise<{ ok: boolean; projectStarted: boolean }>;
+    updateStepStatus(input: { taskId: string; stepId: string; status: 'NOT_STARTED' | 'COMPLETED' }): Promise<boolean>;
+    setValidations(input: { taskId: string; userId: string; confirmations: Array<{ position: number; confirmed: boolean }> }): Promise<ValidationRecord[]>;
+  };
+  conversations: {
+    getOrCreate(input: { projectId: string; scope: ConversationScope; scopeId: string; userId: string }): Promise<ConversationRecord>;
+    get(id: string): Promise<ConversationRecord | null>;
+    find(input: { projectId: string; scope: ConversationScope; scopeId: string; userId: string }): Promise<ConversationRecord | null>;
+    findMessageByClientId(conversationId: string, clientMessageId: string): Promise<MessageRecord | null>;
+    addMessage(input: { conversationId: string; role: 'USER' | 'ASSISTANT'; content: string; status?: 'COMPLETE' | 'FAILED'; structured?: AssistantMessageContent; contextRefs?: Array<{ type: string; id: string }>; clientMessageId?: string; userId?: string }): Promise<MessageRecord>;
+    list(conversationId: string, limit: number): Promise<MessageRecord[]>;
+  };
+}
+export interface ImplementationAiPort {
+  plan(input: ImplPlanInput): Promise<AiResult<ImplementationPlan>>;
+  critique(input: ImplCritiqueInput): Promise<AiResult<ImplCriticOutput>>;
+  repair(input: ImplRepairInput): Promise<AiResult<ImplRepairPatch>>;
+}
+export type AssistantStreamEvent = { type: 'delta'; text: string } | { type: 'done'; ai: AiMeta };
+export interface AssistantAiPort {
+  stream(input: { context: { workspaceId: string; projectId: string; userId: string }; projectContext: unknown; history: Array<{ role: 'user' | 'assistant'; content: string }>; question: string; signal?: AbortSignal }): AsyncIterable<AssistantStreamEvent>;
+}

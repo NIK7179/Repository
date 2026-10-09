@@ -13,3 +13,6 @@ export * from './providers/mock-discovery';
 export * from './capabilities/architecture';
 export * from './prompts/architecture';
 export * from './providers/mock-architecture';
+export * from './capabilities/implementation';
+export * from './prompts/implementation';
+export * from './providers/mock-implementation';

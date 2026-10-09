@@ -38,3 +38,10 @@ Never persist unvalidated model output. Never log secrets or (outside debug) pro
 * The main vitest config excludes `apps/web/test-ui/**` (those need the production server). Run them with `npm run test:ui`.
 * React Flow in jsdom: nodes need explicit `width`/`height`/`handles` for edges to render (the adapter provides them), and use `fireEvent.click` on nodes because d3-drag reads `event.view`, which user-event does not set.
 * Mutation checks used while building Phase 3 are described in the Phase 3 report; the pattern is: remove one safeguard, run the relevant tests, expect a failure, restore.
+
+## Phase 4 notes
+* A READY architecture is the starting point: `architectureReadyProject(h)` / `implementationReadyProject(h)` in `test/helpers.ts` build one with the mock AI; `implInputFor(h, projectId)` gives the exact planner input so tests can script realistic (and deliberately broken) model output.
+* Assistant tests inject a fake `AssistantAiPort` (`makeApp(..., { assistantAi })`) to simulate partial streams, provider errors and disconnects. The default mock provider streams a grounded answer.
+* The UI tests (`apps/web/test-ui`) drive the real production server and its inline worker; `architectureReadyViaApi` / `implementationReadyViaApi` set up state. Use `fireEvent.click` on React Flow nodes. When a control is disabled while a request is in flight, `waitFor` it to be enabled before clicking.
+* Mutation discipline: remove one safeguard, run the relevant tests, expect a failure, restore. Use a runner that restores in a `trap` and runs in the background with a per-run timeout; a killed runner once left a deliberately broken file behind.
+* `npm run eval:implementation` is for humans: read the plans; the printed metrics are heuristics.

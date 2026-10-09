@@ -1,4 +1,4 @@
-import { ARCHITECTURE_JOB, type Application, type JobQueue } from '@pitch2plan/domain';
+import { ARCHITECTURE_JOB, IMPLEMENTATION_JOB, type Application, type JobQueue } from '@pitch2plan/domain';
 import PgBoss from 'pg-boss';
 
 export interface JobLogger { info(f: Record<string, unknown>, m?: string): void; warn(f: Record<string, unknown>, m?: string): void; error(f: Record<string, unknown>, m?: string): void }
@@ -22,7 +22,7 @@ export class PgBossJobQueue implements JobQueue {
       const boss = new PgBoss({ connectionString: this.connectionString, schema: this.opts.schema ?? 'pgboss' });
       boss.on('error', (e) => this.logger.error({ err: String(e) }, 'pg-boss error'));
       await boss.start();
-      await boss.createQueue(ARCHITECTURE_JOB, { name: ARCHITECTURE_JOB, policy: 'short', retryLimit: 2, retryDelay: 30, retryBackoff: true, expireInSeconds: 20 * 60 });
+      for (const name of [ARCHITECTURE_JOB, IMPLEMENTATION_JOB]) await boss.createQueue(name, { name, policy: 'short', retryLimit: 2, retryDelay: 30, retryBackoff: true, expireInSeconds: 20 * 60 });
       return boss;
     })().catch((e) => { this.bossPromise = undefined; throw e; });
     return this.bossPromise;
@@ -33,7 +33,7 @@ export class PgBossJobQueue implements JobQueue {
   }
 
   /** Starts consuming architecture jobs and a sweeper that fails runs whose worker vanished, so projects never stay stuck in ARCHITECTURE_GENERATING. */
-  async startWorker(app: Pick<Application, 'architecture'>, opts: { sweepEveryMs?: number } = {}): Promise<{ stop(): Promise<void> }> {
+  async startWorker(app: Pick<Application, 'architecture' | 'implementation'>, opts: { sweepEveryMs?: number } = {}): Promise<{ stop(): Promise<void> }> {
     const boss = await this.getBoss();
     await boss.work<{ runId: string }>(ARCHITECTURE_JOB, { pollingIntervalSeconds: 1, batchSize: 1 }, async (jobs) => {
       for (const job of jobs) {
@@ -42,7 +42,14 @@ export class PgBossJobQueue implements JobQueue {
         this.logger.info({ jobId: job.id, runId: job.data.runId, outcome: result.outcome, durationMs: Date.now() - started }, 'architecture job finished');
       }
     });
-    const sweep = () => app.architecture.recoverStale().then((n) => { if (n) this.logger.warn({ recovered: n }, 'recovered stale generation runs'); }).catch((e) => this.logger.error({ err: String(e) }, 'sweep failed'));
+    await boss.work<{ runId: string }>(IMPLEMENTATION_JOB, { pollingIntervalSeconds: 1, batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) {
+        const started = Date.now();
+        const result = await app.implementation.runGeneration(job.data.runId);
+        this.logger.info({ jobId: job.id, runId: job.data.runId, outcome: result.outcome, durationMs: Date.now() - started }, 'implementation job finished');
+      }
+    });
+    const sweep = () => Promise.all([app.architecture.recoverStale(), app.implementation.recoverStale()]).then(([a, b]) => { if (a + b) this.logger.warn({ recovered: a + b }, 'recovered stale generation runs'); }).catch((e) => this.logger.error({ err: String(e) }, 'sweep failed'));
     void sweep();
     const timer = setInterval(sweep, opts.sweepEveryMs ?? 60_000);
     timer.unref?.();

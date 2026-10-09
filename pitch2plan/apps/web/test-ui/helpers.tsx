@@ -53,3 +53,26 @@ export async function confirmedViaApi(session: ReturnType<typeof makeSession>, l
   await session.api(`/api/projects/${id}/brief/confirm`, { briefVersionId: brief.version.id, acceptedUnknownIds: [] });
   return id;
 }
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+export async function pollUntil<T>(fn: () => Promise<T>, done: (v: T) => boolean, what: string, ms = 90_000): Promise<T> {
+  const end = Date.now() + ms;
+  for (;;) { const v = await fn(); if (done(v)) return v; if (Date.now() > end) throw new Error(`Timed out waiting for ${what}`); await sleep(500); }
+}
+/** Confirmed requirements + a READY architecture, driven over HTTP (the server's inline worker runs the job). */
+export async function architectureReadyViaApi(session: ReturnType<typeof makeSession>, label: string, pitch = PITCH) {
+  const id = await confirmedViaApi(session, label, pitch);
+  await session.api(`/api/projects/${id}/architecture/generate`, {});
+  await pollUntil(() => session.api<{ architecture: { state: string } }>(`/api/projects/${id}/architecture`), (r) => r.architecture.state === 'READY', 'the architecture');
+  return id;
+}
+type PlanOverview = { implementation: { state: string; plan: { tasks: Array<{ id: string; key: string; title: string }>; next: { taskId: string } | null } | null } };
+/** ...plus a generated implementation plan. */
+export async function implementationReadyViaApi(session: ReturnType<typeof makeSession>, label: string, pitch = PITCH) {
+  const id = await architectureReadyViaApi(session, label, pitch);
+  await session.api(`/api/projects/${id}/implementation/generate`, {});
+  const o = await pollUntil(() => session.api<PlanOverview>(`/api/projects/${id}/implementation`), (r) => r.implementation.state === 'READY' || r.implementation.state === 'FAILED', 'the implementation plan');
+  if (o.implementation.state !== 'READY') throw new Error('implementation generation failed');
+  const taskId = (key: string) => o.implementation.plan!.tasks.find((t) => t.key === key)!.id;
+  return { id, plan: o.implementation.plan!, taskId };
+}

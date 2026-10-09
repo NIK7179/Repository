@@ -106,6 +106,8 @@ model Project {
   drivers         ArchitectureDriver[]
   architecture    Architecture?
   generationRuns  ArchitectureGenerationRun[]
+  implementationPlan ImplementationPlan?
+  implementationRuns ImplementationGenerationRun[]
 
   @@index([workspaceId, deletedAt, updatedAt])
   @@index([createdById])
@@ -149,12 +151,18 @@ model IdeaInterpretation {
 model Conversation {
   id        String    @id @default(uuid()) @db.Uuid
   projectId String    @db.Uuid
+  /// PROJECT | COMPONENT | TASK (later: REVIEW, CHANGE_PROPOSAL)
+  scope     String    @default("PROJECT")
+  /// PROJECT: the project id. COMPONENT: the component stableKey. TASK: the task id.
+  scopeId   String    @default("")
+  createdById String? @db.Uuid
   title     String?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   messages  Message[]
 
+  @@unique([projectId, scope, scopeId, createdById])
   @@index([projectId])
 }
 
@@ -163,9 +171,16 @@ model Message {
   conversationId String       @db.Uuid
   role           MessageRole
   content        String
+  /// COMPLETE | FAILED. A partial assistant answer is never stored as COMPLETE.
+  status         String       @default("COMPLETE")
+  structured     Json?
+  contextRefs    Json?
+  clientMessageId String?
+  createdById    String?      @db.Uuid
   createdAt      DateTime     @default(now())
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
+  @@unique([conversationId, clientMessageId])
   @@index([conversationId, createdAt])
 }
 
@@ -352,6 +367,7 @@ model Requirement {
   versions       RequirementVersion[]
   drivers        ArchitectureDriverRequirement[]
   decisionLinks  DecisionRequirementLink[]
+  taskLinks      TaskRequirementLink[]
 
   @@unique([projectId, key])
   @@index([projectId, status])
@@ -546,6 +562,8 @@ model ArchitectureVersion {
   edges               ArchitectureEdge[]
   decisions           ArchitectureDecision[]
   issues              ArchitectureGenerationIssue[]
+  implementationPlanVersion ImplementationPlanVersion?
+  taskComponentLinks  TaskComponentLink[]
 
   @@unique([architectureId, versionNumber])
 }
@@ -617,6 +635,7 @@ model ArchitectureDecision {
   requirementLinks DecisionRequirementLink[]
   nodeLinks        NodeDecisionLink[]
   edgeLinks        EdgeDecisionLink[]
+  taskLinks        TaskDecisionLink[]
 
   @@unique([versionId, key])
 }
@@ -710,4 +729,227 @@ model ArchitectureGenerationIssue {
 
   @@index([runId])
   @@index([versionId])
+}
+
+// ---------------------------------------------------------------- Phase 4: implementation
+
+model ImplementationPlan {
+  id               String                      @id @default(uuid()) @db.Uuid
+  projectId        String                      @unique @db.Uuid
+  currentVersionId String?                     @db.Uuid
+  createdAt        DateTime                    @default(now())
+  updatedAt        DateTime                    @updatedAt
+  project          Project                     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  versions         ImplementationPlanVersion[]
+}
+
+/// Bound to exactly ONE immutable architecture version. Its content never changes; only task progress does.
+model ImplementationPlanVersion {
+  id                   String                    @id @default(uuid()) @db.Uuid
+  planId               String                    @db.Uuid
+  versionNumber        Int
+  architectureVersionId String                   @unique @db.Uuid
+  generationRunId      String                    @unique @db.Uuid
+  summary              String
+  /// [{ stableKey, reason }] components that deliberately need no implementation
+  componentCoverage    Json
+  ai                   Json
+  createdAt            DateTime                  @default(now())
+  plan                 ImplementationPlan        @relation(fields: [planId], references: [id], onDelete: Cascade)
+  architectureVersion  ArchitectureVersion       @relation(fields: [architectureVersionId], references: [id], onDelete: Restrict)
+  run                  ImplementationGenerationRun @relation(fields: [generationRunId], references: [id], onDelete: Cascade)
+  phases               ImplementationPhase[]
+  tasks                ImplementationTask[]
+  issues               ImplementationGenerationIssue[]
+
+  @@unique([planId, versionNumber])
+}
+
+model ImplementationPhase {
+  id            String                    @id @default(uuid()) @db.Uuid
+  planVersionId String                    @db.Uuid
+  key           String
+  sequence      Int
+  name          String
+  objective     String
+  description   String
+  status        String                    @default("NOT_STARTED")
+  planVersion   ImplementationPlanVersion @relation(fields: [planVersionId], references: [id], onDelete: Cascade)
+  tasks         ImplementationTask[]
+
+  @@unique([planVersionId, key])
+  @@unique([planVersionId, sequence])
+}
+
+model ImplementationTask {
+  id              String                    @id @default(uuid()) @db.Uuid
+  planVersionId   String                    @db.Uuid
+  phaseId         String                    @db.Uuid
+  key             String
+  sequence        Int
+  title           String
+  objective       String
+  description     String
+  whyThisTask     String
+  taskType        String
+  complexity      String
+  effort          String
+  status          String                    @default("NOT_STARTED")
+  prerequisites   Json
+  instructions    String
+  expectedOutcome String
+  validationSteps Json
+  commonProblems  Json
+  securityNotes   Json
+  operationalNotes Json
+  /// Documentation references. Model-suggested links are UNVERIFIED guidance, never project configuration.
+  references      Json
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+  planVersion     ImplementationPlanVersion @relation(fields: [planVersionId], references: [id], onDelete: Cascade)
+  phase           ImplementationPhase       @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  steps           TaskStep[]
+  dependencies    TaskDependency[]          @relation("TaskDependsOn")
+  dependents      TaskDependency[]          @relation("TaskDependedOnBy")
+  componentLinks  TaskComponentLink[]
+  decisionLinks   TaskDecisionLink[]
+  requirementLinks TaskRequirementLink[]
+  progressEvents  TaskProgressEvent[]
+  validations     TaskValidation[]
+
+  @@unique([planVersionId, key])
+  @@unique([planVersionId, sequence])
+  @@index([phaseId])
+}
+
+model TaskStep {
+  id             String             @id @default(uuid()) @db.Uuid
+  taskId         String             @db.Uuid
+  sequence       Int
+  title          String
+  instruction    String
+  expectedResult String
+  validation     String             @default("")
+  status         String             @default("NOT_STARTED")
+  completedAt    DateTime?
+  task           ImplementationTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, sequence])
+}
+
+model TaskDependency {
+  taskId          String             @db.Uuid
+  dependsOnTaskId String             @db.Uuid
+  task            ImplementationTask @relation("TaskDependsOn", fields: [taskId], references: [id], onDelete: Cascade)
+  dependsOn       ImplementationTask @relation("TaskDependedOnBy", fields: [dependsOnTaskId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, dependsOnTaskId])
+  @@index([dependsOnTaskId])
+}
+
+/// Links by (architectureVersionId, stableKey): stable keys are the identity of a component, technology names can change.
+model TaskComponentLink {
+  taskId                String              @db.Uuid
+  architectureVersionId String              @db.Uuid
+  stableKey             String
+  task                  ImplementationTask  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  architectureVersion   ArchitectureVersion @relation(fields: [architectureVersionId], references: [id], onDelete: Restrict)
+
+  @@id([taskId, stableKey])
+  @@index([architectureVersionId, stableKey])
+}
+
+model TaskDecisionLink {
+  taskId     String               @db.Uuid
+  decisionId String               @db.Uuid
+  task       ImplementationTask   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  decision   ArchitectureDecision @relation(fields: [decisionId], references: [id], onDelete: Restrict)
+
+  @@id([taskId, decisionId])
+  @@index([decisionId])
+}
+
+model TaskRequirementLink {
+  taskId        String             @db.Uuid
+  requirementId String             @db.Uuid
+  task          ImplementationTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  requirement   Requirement        @relation(fields: [requirementId], references: [id], onDelete: Restrict)
+
+  @@id([taskId, requirementId])
+  @@index([requirementId])
+}
+
+/// Append-only history of status changes. Status is never silently overwritten.
+model TaskProgressEvent {
+  id         String             @id @default(uuid()) @db.Uuid
+  taskId     String             @db.Uuid
+  fromStatus String
+  toStatus   String
+  reason     String?
+  actorId    String             @db.Uuid
+  createdAt  DateTime           @default(now())
+  task       ImplementationTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, createdAt])
+}
+
+/// One row per validation step. confirmationKind is USER_CONFIRMED unless Pitch2Plan itself checked an external system (SYSTEM_VERIFIED, future).
+model TaskValidation {
+  id               String             @id @default(uuid()) @db.Uuid
+  taskId           String             @db.Uuid
+  position         Int
+  label            String
+  confirmed        Boolean            @default(false)
+  confirmationKind String?
+  confirmedById    String?            @db.Uuid
+  confirmedAt      DateTime?
+  task             ImplementationTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, position])
+}
+
+model ImplementationGenerationRun {
+  id                    String                      @id @default(uuid()) @db.Uuid
+  projectId             String                      @db.Uuid
+  architectureVersionId String                      @db.Uuid
+  status                GenerationRunStatus         @default(QUEUED)
+  currentStage          String                      @default("QUEUED")
+  attempt               Int                         @default(0)
+  repairCount           Int                         @default(0)
+  failureCode           String?
+  failureMessage        String?
+  jobId                 String?                     @unique
+  requestedById         String                      @db.Uuid
+  ai                    Json?
+  createdAt             DateTime                    @default(now())
+  startedAt             DateTime?
+  heartbeatAt           DateTime?
+  finishedAt            DateTime?
+  project               Project                     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  version               ImplementationPlanVersion?
+  issues                ImplementationGenerationIssue[]
+
+  @@index([projectId, createdAt])
+  @@index([status, heartbeatAt])
+}
+
+model ImplementationGenerationIssue {
+  id             String                      @id @default(uuid()) @db.Uuid
+  runId          String                      @db.Uuid
+  planVersionId  String?                     @db.Uuid
+  stage          String
+  source         String
+  severity       String
+  category       String
+  code           String
+  description    String
+  taskKeys       Json
+  componentKeys  Json
+  decisionKeys   Json
+  recommendation String
+  createdAt      DateTime                    @default(now())
+  run            ImplementationGenerationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  planVersion    ImplementationPlanVersion?  @relation(fields: [planVersionId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
 }

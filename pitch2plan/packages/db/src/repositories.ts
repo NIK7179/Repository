@@ -5,6 +5,7 @@ import { ideaInterpretationSchema } from '@pitch2plan/schemas';
 import type { PrismaClient } from './client';
 import { createArchitectureRepositories } from './repositories-architecture';
 import { createDiscoveryRepositories } from './repositories-discovery';
+import { createImplementationRepositories } from './repositories-implementation';
 import type { Prisma } from './generated/client';
 
 const isUniqueViolation = (e: unknown) => !!e && typeof e === 'object' && (e as { code?: string }).code === 'P2002';
@@ -47,6 +48,7 @@ export function createRepositories(prisma: PrismaClient): Repositories {
   return {
     ...createDiscoveryRepositories(prisma),
     ...createArchitectureRepositories(prisma),
+    ...createImplementationRepositories(prisma),
     users: {
       async findById(id) {
         const u = await prisma.user.findUnique({ where: { id } });

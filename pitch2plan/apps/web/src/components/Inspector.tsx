@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { Alert, Badge, Skeleton } from '@pitch2plan/ui';
 import { ApiError, call, type NodeInspectorDto, type RequirementDto } from '@/lib/api-client';
@@ -15,7 +16,7 @@ const ADR = (key: string) => key.toUpperCase();
 const crit = (c: string) => <Badge tone={c === 'CRITICAL' ? 'danger' : c === 'HIGH' ? 'warn' : 'neutral'}>{c.toLowerCase()}</Badge>;
 const asReq = (r: { origin: string }): Pick<RequirementDto, 'origin' | 'source'> => ({ origin: r.origin as RequirementDto['origin'], source: r.origin as RequirementDto['source'] });
 
-export function NodeInspector({ versionId, stableKey, onClose }: { versionId: string; stableKey: string; onClose: () => void }) {
+export function NodeInspector({ versionId, stableKey, onClose, projectId }: { versionId: string; stableKey: string; onClose: () => void; projectId?: string }) {
   const [data, setData] = useState<NodeInspectorDto | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [why, setWhy] = useState(true);
@@ -39,6 +40,12 @@ export function NodeInspector({ versionId, stableKey, onClose }: { versionId: st
           <div className="min-w-0"><h2 className="truncate text-base font-semibold" data-testid="inspector-title">{n.name}</h2><p className="truncate text-sm text-muted">{tech.displayName}{tech.provider ? ` · ${tech.provider}` : ''}</p></div></div>
         <button onClick={onClose} aria-label="Close inspector" className="rounded px-2 text-muted hover:bg-subtle hover:text-fg">×</button>
       </header>
+      {projectId && (
+        <div className="flex flex-wrap gap-2" data-testid="node-actions">
+          <Link href={`/projects/${projectId}/components/${encodeURIComponent(stableKey)}`} data-testid="open-implementation" className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg hover:opacity-90">Open Implementation Workspace</Link>
+          <Link href={`/projects/${projectId}/components/${encodeURIComponent(stableKey)}?tab=Ask%20Architect`} data-testid="ask-architect-link" className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-subtle">Ask Architect</Link>
+        </div>
+      )}
 
       <Section title="Overview">
         <div className="mb-2 flex flex-wrap gap-2"><Badge>{n.category.replaceAll('_', ' ').toLowerCase()}</Badge>{crit(n.criticality)}<Badge>{n.deploymentModel.replaceAll('_', ' ').toLowerCase()}</Badge>{n.managedService && <Badge tone="accent">managed service</Badge>}</div>
